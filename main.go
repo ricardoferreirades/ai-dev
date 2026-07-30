@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.10.0"
+const version = "0.11.0"
 
 type Paths struct {
 	ConfigHome string
@@ -151,6 +151,26 @@ func main() {
 			die(err)
 		}
 
+	case "export":
+		if err := exportCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "import":
+		if err := importCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "bundle":
+		if err := bundleCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "sync":
+		if err := syncCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
 	case "plugin":
 		if err := pluginCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
@@ -187,7 +207,7 @@ func usage() {
   ai-dev root
   ai-dev config [--json | --compact]
   ai-dev env [--shell sh]
-	ai-dev validate [--strict] [--json]
+	ai-dev validate [--strict] [--json] [--bundle <path>]
   ai-dev secret resolve <reference>
   ai-dev secret check [--json]
 	ai-dev mcp list [--enabled] [--json]
@@ -216,6 +236,15 @@ func usage() {
 	ai-dev profile resolve [--with-project] [--json]
 	ai-dev machine show [--json]
 	ai-dev context [--json]
+	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins]
+	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--json]
+	ai-dev bundle verify <bundle>
+	ai-dev bundle show <bundle> [--json]
+	ai-dev bundle list [directory] [--json]
+	ai-dev bundle metadata <bundle> [--json]
+	ai-dev bundle diff <bundle> [--json]
+	ai-dev sync preview <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
+	ai-dev sync <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
 	ai-dev plugin list [--json]
 	ai-dev plugin show <plugin-id> [--json] [--handshake]
 	ai-dev plugin validate [<plugin-id>] [--json]
@@ -243,6 +272,10 @@ Commands:
 	profile      Inspect and resolve reusable profile overlays
 	machine      Inspect machine overlay selection and status
 	context      Display active source resolution context
+	export       Create a portable configuration bundle
+	import       Validate and import a configuration bundle
+	bundle       Verify, inspect, and diff configuration bundles
+	sync         Preview or apply local bundle synchronization
 	plugin       Discover, validate, and invoke external ai-dev plugins
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
@@ -889,6 +922,13 @@ func doctor(paths Paths) error {
 						}
 					}
 
+					for _, line := range bundleDoctorLines(paths) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -934,7 +974,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 10 is available.")
+	fmt.Println("Everything required for Checkpoint 11 is available.")
 	return nil
 }
 
@@ -1084,16 +1124,60 @@ func printConfigurationWarnings(warnings []ValidationFinding) {
 func validateCommand(paths Paths, arguments []string) error {
 	strict := false
 	jsonOutput := false
+	bundlePath := ""
 
-	for _, argument := range arguments {
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
 		switch argument {
 		case "--strict":
 			strict = true
 		case "--json":
 			jsonOutput = true
+		case "--bundle":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--bundle requires a value"}
+			}
+			index++
+			bundlePath = arguments[index]
 		default:
 			return UsageError{Message: fmt.Sprintf("unknown validate option: %s", argument)}
 		}
+	}
+
+	if bundlePath != "" {
+		findings := []ValidationFinding{}
+		archive, err := readBundleArchive(bundlePath)
+		if err != nil {
+			findings = append(findings, ValidationFinding{Source: bundlePath, Path: "$", Code: bundleCodeInvalid, Severity: "error", Message: err.Error()})
+		} else if err := verifyBundleArchive(archive); err != nil {
+			code := bundleCodeInvalid
+			var typed bundleError
+			if errors.As(err, &typed) {
+				code = typed.Code
+			}
+			findings = append(findings, ValidationFinding{Source: bundlePath, Path: "$", Code: code, Severity: "error", Message: err.Error()})
+		}
+
+		report := ValidationReport{Valid: len(findings) == 0, Errors: findings, Warnings: []ValidationFinding{}, Sources: []string{bundlePath}}
+		if jsonOutput {
+			output, err := validationOutputJSON(report)
+			if err != nil {
+				return err
+			}
+			fmt.Println(output)
+		} else {
+			for _, source := range report.Sources {
+				fmt.Printf("source=%s\n", source)
+			}
+			for _, finding := range report.Errors {
+				fmt.Printf("[error] source=%s path=%s code=%s message=%s\n", finding.Source, finding.Path, finding.Code, finding.Message)
+			}
+			fmt.Printf("valid=%t\n", report.Valid)
+		}
+		if report.Valid {
+			return nil
+		}
+		return errors.New("validation failed")
 	}
 
 	report, err := validateConfigurationForCurrentProject(paths, strict)

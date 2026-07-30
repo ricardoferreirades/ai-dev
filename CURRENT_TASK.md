@@ -1,41 +1,31 @@
-# Current Task: Checkpoint 10
+# Current Task: Checkpoint 11
 
 ## Objective
 
-Implement a controlled plugin architecture for `ai-dev` with external
-process execution, manifest-driven discovery, versioned NDJSON protocol,
-capability registration, validation, diagnostics, and command surfaces.
+Implement deterministic configuration bundle export/import/verification
+and local synchronization workflows for `ai-dev`.
 
 ## Scope
 
-- Add plugin discovery and manifest validation from ordered search paths.
-- Add plugin command surface:
-  - `plugin list`
-  - `plugin show`
-  - `plugin validate`
-  - `plugin status`
-  - `plugin refresh`
-  - `plugin run`
-- Add handshake and runtime capability discovery protocol (`ai-dev-plugin-v1`).
-- Enforce process controls:
-  - finite timeout
-  - bounded stdout/stderr
-  - bounded message count and size
-  - direct executable invocation (no shell wrapper)
-  - minimal default plugin environment
-- Integrate plugin capability surfaces:
-  - secret-provider registration for `secret://<provider>/...`
-  - prompt-provider and rule-provider registry resources
-  - validator findings in core validation output
-- Add plugin provenance in `config sources` and plugin checks in `doctor`.
-
-## Required behavior
-
-- Invalid, incompatible, or conflicting plugins are visible but fail closed.
-- Plugin identifier, manifest schema, protocol, executable, and capability
-  checks emit stable diagnostics.
-- Discovery is deterministic by search path then filesystem ordering.
-- Existing non-plugin workflows remain compatible.
+- Add portable bundle schema `bundle-v1` using `.aidev` archives.
+- Add manifest metadata and per-resource checksums.
+- Add commands:
+  - `export`
+  - `import`
+  - `bundle verify/show/list/metadata/diff`
+  - `sync preview` and `sync`
+- Add conflict policy handling:
+  - `--overwrite`
+  - `--skip-existing`
+  - `--fail-on-conflict`
+- Add atomic import application and rollback behavior.
+- Add dry-run import planning with create/update/conflict/skip reporting.
+- Integrate bundle validation through `validate --bundle`.
+- Add doctor bundle capability and last-status reporting.
+- Preserve security constraints:
+  - no resolved secrets in bundles
+  - no plugin executables bundled
+  - machine overlays opt-in
 
 ## Verification
 

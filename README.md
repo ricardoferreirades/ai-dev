@@ -38,8 +38,17 @@ ai-dev [--plugin-path <path>]... plugin validate [<plugin-id>] [--json]
 ai-dev [--plugin-path <path>]... plugin status [--json]
 ai-dev [--plugin-path <path>]... plugin refresh [--json]
 ai-dev [--plugin-path <path>]... plugin run <plugin-id> <operation> [--capability <name>] [--input <path>] [--json]
+ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins]
+ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--json]
+ai-dev bundle verify <bundle>
+ai-dev bundle show <bundle> [--json]
+ai-dev bundle list [directory] [--json]
+ai-dev bundle metadata <bundle> [--json]
+ai-dev bundle diff <bundle> [--json]
+ai-dev sync preview <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
+ai-dev sync <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
 ai-dev env [--shell sh]
-ai-dev validate [--strict] [--json]
+ai-dev validate [--strict] [--json] [--bundle <path>]
 ai-dev secret resolve <reference>
 ai-dev secret check [--json]
 ai-dev mcp list [--enabled] [--json]
@@ -92,6 +101,10 @@ ai-dev version
 - `machine` — inspect machine identity normalization and overlay path.
 - `context` — print runtime context, active profiles, and merge order.
 - `plugin` — discover, validate, inspect, and invoke external plugins.
+- `export` — package configuration into a portable `.aidev` bundle.
+- `import` — validate and import a bundle with conflict policies.
+- `bundle` — verify, inspect, list, and diff bundles.
+- `sync` — preview or apply bundle synchronization using import policies.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -204,6 +217,10 @@ provenance commands, and compatibility guidance.
 See [`docs/checkpoints/10-plugin-architecture.md`](docs/checkpoints/10-plugin-architecture.md)
 for plugin manifest schema, discovery precedence, protocol lifecycle,
 capability integrations, diagnostics, and rollback guidance.
+
+See [`docs/checkpoints/11-configuration-distribution-sync.md`](docs/checkpoints/11-configuration-distribution-sync.md)
+for bundle format schema, export/import commands, conflict policies,
+checksum verification, synchronization preview, and atomic import behavior.
 
 ## Environment activation
 
