@@ -236,6 +236,7 @@ func validateSchemaV1Fields(
 		"prompts":     true,
 		"rules":       true,
 		"secrets":     true,
+		"clients":     true,
 	}
 
 	topLevelKeys := mapKeys(configuration)
@@ -259,6 +260,7 @@ func validateSchemaV1Fields(
 	findings = append(findings, validatePromptsField(source, configuration["prompts"])...)
 	findings = append(findings, validateRulesField(source, configuration["rules"])...)
 	findings = append(findings, validateSecretsField(source, configuration["secrets"])...)
+	findings = append(findings, validateClientsField(source, configuration["clients"])...)
 
 	return findings
 }
@@ -1011,6 +1013,85 @@ func validateSecretsField(source string, value any) []ValidationFinding {
 				); ok {
 					findings = append(findings, finding)
 				}
+			}
+		}
+	}
+
+	return findings
+}
+
+func validateClientsField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+
+	clients, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "clients",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "clients must be a table",
+		}}
+	}
+
+	allowedClients := map[string]bool{
+		clientNameCodex:  true,
+		clientNameClaude: true,
+		clientNameCursor: true,
+		clientNameVSCode: true,
+	}
+
+	findings := []ValidationFinding{}
+	for _, name := range mapKeys(clients) {
+		if !allowedClients[name] {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "clients." + name,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown client name",
+			})
+			continue
+		}
+
+		table, ok := clients[name].(map[string]any)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "clients." + name,
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "client override must be a table",
+			})
+			continue
+		}
+
+		allowedFields := map[string]bool{
+			"enabled": true,
+		}
+		for _, key := range mapKeys(table) {
+			if !allowedFields[key] {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "clients." + name + "." + key,
+					Code:     validationCodeUnknownField,
+					Severity: "error",
+					Message:  "unknown field in client override",
+				})
+			}
+		}
+
+		if enabledValue, exists := table["enabled"]; exists {
+			if _, ok := enabledValue.(bool); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "clients." + name + ".enabled",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "enabled must be a boolean",
+				})
 			}
 		}
 	}

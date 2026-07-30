@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.6.0"
+const version = "0.7.0"
 
 type Paths struct {
 	ConfigHome string
@@ -107,6 +107,11 @@ func main() {
 			die(err)
 		}
 
+	case "client":
+		if err := clientCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -144,6 +149,12 @@ func usage() {
 	ai-dev mcp show <server-name> [--json]
 	ai-dev mcp resolve [--include-disabled] [--resolve-secrets]
 	ai-dev mcp check [--json]
+	ai-dev client list [--json]
+	ai-dev client show <client> [--json]
+	ai-dev client path <client> [--scope <scope>] [--json]
+	ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]
+	ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]
+	ai-dev client compare [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -157,6 +168,7 @@ Commands:
   validate     Validate source and resolved configuration
   secret       Resolve and inspect secret references
 	mcp          Inspect and validate resolved MCP registry
+	client       Inspect and generate client adapter configurations
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -779,6 +791,13 @@ func doctor(paths Paths) error {
 					problems += mcpSummary.UnresolvedSecrets
 					problems += mcpSummary.UnsupportedTransports
 
+					for _, line := range clientDoctorSummary(paths, info, resolved, loadedSources) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -824,7 +843,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 6 is available.")
+	fmt.Println("Everything required for Checkpoint 7 is available.")
 	return nil
 }
 

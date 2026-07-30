@@ -1,66 +1,71 @@
-# Current Task: Checkpoint 6
+# Current Task: Checkpoint 7
 
 ## Objective
 
-Introduce a centralized Model Context Protocol registry so `ai-dev` can
-define, validate, merge, list, inspect, and resolve MCP server
-configuration independently of client adapters.
+Introduce a centralized AI client adapter framework so `ai-dev` can
+translate the validated, resolved client-neutral MCP model into
+client-specific configuration for supported tools.
 
-This checkpoint defines MCP configuration and readiness checks only. It
-must not launch, supervise, or communicate with MCP servers.
+This checkpoint adds adapter listing, validation, generation,
+destination discovery, comparison, and safe optional output-file writing.
+It must not install into real client configuration files.
 
-## MCP model
+## Adapter model
 
-Supported transports:
+Supported adapters:
 
-- `stdio`
-- `http`
+- `codex`
+- `claude`
+- `cursor`
+- `vscode`
 
-Registry entries are defined as named tables under
-`[mcp.servers.<server-name>]` and merged using existing global/project
-overlay semantics.
+Adapters consume resolved MCP servers from existing config merge and
+validation flows. They do not reparse global/project files.
 
-Legacy syntax remains temporarily compatible with a deterministic
-interpretation:
+Optional client overrides are supported via schema v1:
 
 ```toml
-[mcp]
-servers = ["github", "postgres"]
+[clients.codex]
+enabled = true
+
+[clients.cursor]
+enabled = false
 ```
 
 ## Commands
 
-- `ai-dev mcp list [--enabled] [--json]`
-- `ai-dev mcp show <server-name> [--json]`
-- `ai-dev mcp resolve [--include-disabled] [--resolve-secrets]`
-- `ai-dev mcp check [--json]`
+- `ai-dev client list [--json]`
+- `ai-dev client show <client> [--json]`
+- `ai-dev client path <client> [--scope <scope>] [--json]`
+- `ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]`
+- `ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]`
+- `ai-dev client compare [--json]`
 
 ## Safety and validation
 
-- Unknown MCP fields are rejected.
-- Secret values are never emitted by default inspection commands.
+- Adapters validate transport, field, scope, format, and secret compatibility.
+- Unsupported field handling is explicit via warnings/errors.
 - `--resolve-secrets` is opt-in and atomic.
-- `mcp check` validates readiness without network calls or server launch.
-- Doctor includes MCP summary diagnostics.
+- `--strict` upgrades warnings to generation/validation failures.
+- Optional output-file writes are atomic and overwrite-protected.
+- Doctor includes adapter registration, path ambiguity, executable detection, and compatibility diagnostics.
 
 ## Required stable codes
 
-- `invalid_mcp_server_name`
-- `duplicate_mcp_server`
-- `unsupported_mcp_transport`
-- `missing_mcp_command`
-- `invalid_mcp_command`
-- `missing_mcp_url`
-- `invalid_mcp_url`
-- `conflicting_mcp_fields`
-- `invalid_mcp_args`
-- `invalid_mcp_environment`
-- `invalid_mcp_headers`
-- `invalid_mcp_timeout`
-- `mcp_command_not_found`
-- `mcp_working_directory_not_found`
-- `mcp_secret_resolution_failed`
-- `mcp_server_not_found`
+- `unknown_client`
+- `client_disabled`
+- `unsupported_client_format`
+- `unsupported_client_scope`
+- `unsupported_client_transport`
+- `unsupported_client_field`
+- `client_generation_failed`
+- `client_validation_failed`
+- `client_path_ambiguous`
+- `client_path_unavailable`
+- `client_output_exists`
+- `client_output_write_failed`
+- `client_secret_resolution_failed`
+- `client_configuration_incompatible`
 
 ## CLI exit status
 

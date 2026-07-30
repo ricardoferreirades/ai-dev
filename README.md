@@ -38,6 +38,12 @@ ai-dev mcp list [--enabled] [--json]
 ai-dev mcp show <server-name> [--json]
 ai-dev mcp resolve [--include-disabled] [--resolve-secrets]
 ai-dev mcp check [--json]
+ai-dev client list [--json]
+ai-dev client show <client> [--json]
+ai-dev client path <client> [--scope <scope>] [--json]
+ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]
+ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]
+ai-dev client compare [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -53,6 +59,7 @@ ai-dev version
   configuration context.
 - `secret` — resolve and inspect secret references safely.
 - `mcp` — inspect, resolve, and validate the MCP server registry.
+- `client` — inspect adapter capabilities and generate client-specific MCP configuration.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -136,6 +143,10 @@ guarantees, and rollback steps.
 See [`docs/checkpoints/06-mcp-registry.md`](docs/checkpoints/06-mcp-registry.md)
 for full MCP schema, merge behavior, validation rules, JSON contracts,
 and rollback guidance.
+
+See [`docs/checkpoints/07-ai-client-adapters.md`](docs/checkpoints/07-ai-client-adapters.md)
+for the client adapter architecture, capability matrix, format/scope behavior,
+validation and comparison commands, secret handling, output file safety, and rollback guidance.
 
 ## Environment activation
 

@@ -110,6 +110,61 @@ func TestValidateConfigurationDetectsUnknownAndTypeErrors(t *testing.T) {
 	}
 }
 
+func TestValidateConfigurationClientsNamespace(t *testing.T) {
+	paths := Paths{
+		ConfigHome: t.TempDir(),
+		DataHome:   t.TempDir(),
+		StateHome:  t.TempDir(),
+	}
+	if err := os.MkdirAll(filepath.Join(paths.ConfigHome, "projects"), 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+
+	global := filepath.Join(paths.ConfigHome, "global.toml")
+	if err := os.WriteFile(
+		global,
+		[]byte(strings.Join([]string{
+			"schema = \"v1\"",
+			"[clients.codex]",
+			"enabled = true",
+			"[clients.unknown]",
+			"enabled = true",
+			"[clients.cursor]",
+			"enabled = \"yes\"",
+			"format = \"json\"",
+		}, "\n")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	report, err := validateConfigurationForProject(paths, ProjectInfo{ProjectID: "pid"}, false)
+	if err != nil {
+		t.Fatalf("validate config: %v", err)
+	}
+	if report.Valid {
+		t.Fatalf("expected clients namespace validation to fail")
+	}
+
+	seen := map[string]bool{}
+	for _, finding := range report.Errors {
+		if finding.Path == "clients.unknown" && finding.Code == validationCodeUnknownField {
+			seen["unknown_client"] = true
+		}
+		if finding.Path == "clients.cursor.enabled" && finding.Code == validationCodeInvalidType {
+			seen["enabled_type"] = true
+		}
+		if finding.Path == "clients.cursor.format" && finding.Code == validationCodeUnknownField {
+			seen["unknown_field"] = true
+		}
+	}
+	for _, key := range []string{"unknown_client", "enabled_type", "unknown_field"} {
+		if !seen[key] {
+			t.Fatalf("missing expected clients validation finding %s: %+v", key, report.Errors)
+		}
+	}
+}
+
 func TestValidateConfigurationRejectsUnsupportedSchema(t *testing.T) {
 	paths := Paths{
 		ConfigHome: t.TempDir(),
