@@ -82,15 +82,28 @@ Completed checkpoints:
   - `ai-dev validate --strict`
   - `ai-dev validate --json`
 
+### Checkpoint 5
+
+- Secret references with runtime provider abstraction.
+- Supported providers:
+  - `env`
+  - `command`
+- Secret inspection and direct resolution commands.
+- Validation and doctor integration for secret references.
+- Commands:
+  - `ai-dev secret resolve <reference>`
+  - `ai-dev secret check`
+  - `ai-dev secret check --json`
+
 Current version:
 
-- `0.4.0`
+- `0.5.0`
 
 ## Current task
 
-Checkpoint 4 is complete. Read `CURRENT_TASK.md` and
-`docs/checkpoints/04-schema-validation.md` before changing schema or
-validation behavior.
+Checkpoint 5 is complete. Read `CURRENT_TASK.md` and
+`docs/checkpoints/05-secrets.md` before changing secret resolution or
+provider behavior.
 
 ## Development rules
 

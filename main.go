@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.4.0"
+const version = "0.5.0"
 
 type Paths struct {
 	ConfigHome string
@@ -96,6 +97,11 @@ func main() {
 			die(err)
 		}
 
+	case "secret":
+		if err := secretCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -126,7 +132,9 @@ func usage() {
   ai-dev root
   ai-dev config [--json | --compact]
   ai-dev env [--shell sh]
-  ai-dev validate [--strict] [--json]
+	ai-dev validate [--strict] [--json]
+  ai-dev secret resolve <reference>
+  ai-dev secret check [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -138,6 +146,7 @@ Commands:
   config       Print the resolved global and project configuration
   env          Print shell-safe environment exports
   validate     Validate source and resolved configuration
+  secret       Resolve and inspect secret references
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -736,6 +745,46 @@ func doctor(paths Paths) error {
 				} else {
 					fmt.Println("[ok] configuration validation: valid (with warnings)")
 				}
+
+				resolved, _, err := resolveConfiguration(paths, info)
+				if err != nil {
+					fmt.Printf("[error] secret resolution context: %v\n", err)
+					problems++
+				} else {
+					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+					results, err := secretCheckResults(context.Background(), resolved, resolver)
+					if err != nil {
+						fmt.Printf("[error] secret provider checks: %v\n", err)
+						problems++
+					} else if len(results) == 0 {
+						fmt.Println("[notice] secret references: none configured")
+					} else {
+						allResolved := true
+						for _, result := range results {
+							if result.Resolved {
+								fmt.Printf(
+									"[ok] secret reference: provider=%s reference=%s\n",
+									result.Provider,
+									result.Reference,
+								)
+								continue
+							}
+
+							allResolved = false
+							fmt.Printf(
+								"[error] secret reference: provider=%s reference=%s message=%s\n",
+								result.Provider,
+								result.Reference,
+								result.Error,
+							)
+							problems++
+						}
+
+						if allResolved {
+							fmt.Println("[ok] secret references: all resolvable")
+						}
+					}
+				}
 			}
 		}
 	}
@@ -804,25 +853,25 @@ func envCommand(paths Paths, arguments []string) error {
 		return errors.New("[environment] must be a TOML table")
 	}
 
-	keys := make([]string, 0, len(environment))
-
-	for key := range environment {
-		if err := validateEnvironmentName(key); err != nil {
-			return err
-		}
-
-		keys = append(keys, key)
+	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	values, err := resolveEnvironmentValues(context.Background(), environment, resolver)
+	if err != nil {
+		return err
 	}
 
+	keys := make([]string, 0, len(values))
+	for key := range values {
+		keys = append(keys, key)
+	}
 	sort.Strings(keys)
 
+	lines := make([]string, 0, len(keys))
 	for _, key := range keys {
-		value, err := environmentStringValue(key, environment[key])
-		if err != nil {
-			return err
-		}
+		lines = append(lines, fmt.Sprintf("export %s=%s", key, shellQuote(values[key])))
+	}
 
-		fmt.Printf("export %s=%s\n", key, shellQuote(value))
+	for _, line := range lines {
+		fmt.Println(line)
 	}
 
 	return nil
@@ -957,4 +1006,117 @@ func validateCommand(paths Paths, arguments []string) error {
 	}
 
 	return errors.New("validation failed")
+}
+
+func secretCommand(paths Paths, arguments []string) error {
+	if len(arguments) == 0 {
+		return UsageError{Message: "secret requires a subcommand"}
+	}
+
+	switch arguments[0] {
+	case "resolve":
+		if len(arguments) != 2 {
+			return UsageError{Message: "secret resolve requires exactly one reference"}
+		}
+		return secretResolveCommand(paths, arguments[1])
+
+	case "check":
+		jsonOutput := false
+		for _, argument := range arguments[1:] {
+			switch argument {
+			case "--json":
+				jsonOutput = true
+			default:
+				return UsageError{Message: fmt.Sprintf("unknown secret check option: %s", argument)}
+			}
+		}
+		return secretCheckCommand(paths, jsonOutput)
+
+	default:
+		return UsageError{Message: fmt.Sprintf("unknown secret subcommand: %s", arguments[0])}
+	}
+}
+
+func secretResolveCommand(paths Paths, rawReference string) error {
+	reference, err := parseSecretReference(rawReference)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	if reference.Provider == secretProviderEnv {
+		resolver := newSecretResolver(map[string]SecretCommandDefinition{})
+		value, err := resolver.Resolve(ctx, reference)
+		if err != nil {
+			return err
+		}
+		fmt.Println(value)
+		return nil
+	}
+
+	info, err := resolveProjectInfo(paths)
+	if err != nil {
+		return err
+	}
+
+	resolved, _, err := resolveConfiguration(paths, info)
+	if err != nil {
+		return err
+	}
+
+	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	value, err := resolver.Resolve(ctx, reference)
+	if err != nil {
+		return err
+	}
+	fmt.Println(value)
+	return nil
+}
+
+func secretCheckCommand(paths Paths, jsonOutput bool) error {
+	info, err := resolveProjectInfo(paths)
+	if err != nil {
+		return err
+	}
+
+	resolved, _, err := resolveConfiguration(paths, info)
+	if err != nil {
+		return err
+	}
+
+	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	results, err := secretCheckResults(context.Background(), resolved, resolver)
+	if err != nil {
+		return err
+	}
+
+	valid := true
+	for _, result := range results {
+		if !result.Resolved {
+			valid = false
+			break
+		}
+	}
+
+	if jsonOutput {
+		output, err := secretResolutionJSON(results, valid)
+		if err != nil {
+			return err
+		}
+		fmt.Println(output)
+	} else {
+		for _, result := range results {
+			if result.Resolved {
+				fmt.Printf("[ok] secret provider=%s reference=%s\n", result.Provider, result.Reference)
+			} else {
+				fmt.Printf("[error] secret provider=%s reference=%s message=%s\n", result.Provider, result.Reference, result.Error)
+			}
+		}
+		fmt.Printf("valid=%t\n", valid)
+	}
+
+	if valid {
+		return nil
+	}
+	return errors.New("secret resolution failed")
 }

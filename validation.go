@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sort"
@@ -87,6 +88,7 @@ func validateConfigurationForProject(
 
 	findings = append(findings, detectConflictingTopLevelShapes(sources)...)
 	findings = append(findings, detectConflictingSchemaVersions(sources)...)
+	findings = append(findings, detectConflictingSecretCommands(sources)...)
 	if len(resolved) > 0 {
 		findings = append(
 			findings,
@@ -96,6 +98,7 @@ func validateConfigurationForProject(
 				false,
 			)...,
 		)
+		findings = append(findings, validateResolvedSecretReferences(resolved)...)
 	}
 
 	sortValidationFindings(findings)
@@ -232,6 +235,7 @@ func validateSchemaV1Fields(
 		"mcp":         true,
 		"prompts":     true,
 		"rules":       true,
+		"secrets":     true,
 	}
 
 	topLevelKeys := mapKeys(configuration)
@@ -254,6 +258,7 @@ func validateSchemaV1Fields(
 	findings = append(findings, validateMCPField(source, configuration["mcp"])...)
 	findings = append(findings, validatePromptsField(source, configuration["prompts"])...)
 	findings = append(findings, validateRulesField(source, configuration["rules"])...)
+	findings = append(findings, validateSecretsField(source, configuration["secrets"])...)
 
 	return findings
 }
@@ -307,7 +312,7 @@ func validateEnvironmentField(source string, value any) []ValidationFinding {
 			continue
 		}
 
-		if _, err := environmentStringValue(key, environment[key]); err != nil {
+		if stringValue, err := environmentStringValue(key, environment[key]); err != nil {
 			findings = append(findings, ValidationFinding{
 				Source:   source,
 				Path:     "environment." + key,
@@ -315,6 +320,10 @@ func validateEnvironmentField(source string, value any) []ValidationFinding {
 				Severity: "error",
 				Message:  "environment variable must be string, boolean, integer, or float",
 			})
+		} else if strings.HasPrefix(stringValue, "secret://") {
+			if finding := validateSecretReference(stringValue, source, "environment."+key); finding != nil {
+				findings = append(findings, *finding)
+			}
 		}
 	}
 
@@ -446,6 +455,296 @@ func validateRulesField(source string, value any) []ValidationFinding {
 	}
 
 	return findings
+}
+
+func validateSecretsField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+
+	secrets, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "secrets",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "secrets must be a table",
+		}}
+	}
+
+	findings := []ValidationFinding{}
+	allowed := map[string]bool{"commands": true}
+	for _, key := range mapKeys(secrets) {
+		if !allowed[key] {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "secrets." + key,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown field in secrets table",
+			})
+		}
+	}
+
+	commandsValue, exists := secrets["commands"]
+	if !exists || commandsValue == nil {
+		return findings
+	}
+
+	commands, ok := commandsValue.(map[string]any)
+	if !ok {
+		findings = append(findings, ValidationFinding{
+			Source:   source,
+			Path:     "secrets.commands",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "secrets.commands must be a table",
+		})
+		return findings
+	}
+
+	for _, name := range mapKeys(commands) {
+		definition, ok := commands[name].(map[string]any)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "secrets.commands." + name,
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "secret command definition must be a table",
+			})
+			continue
+		}
+
+		commandValue, exists := definition["command"]
+		if !exists {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "secrets.commands." + name + ".command",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "secret command definition requires command",
+			})
+		} else if _, ok := commandValue.(string); !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "secrets.commands." + name + ".command",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "secret command must be a string",
+			})
+		}
+
+		if argsValue, exists := definition["args"]; exists {
+			if args, ok := argsValue.([]any); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "secrets.commands." + name + ".args",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "secret command args must be an array of strings",
+				})
+			} else {
+				for range args {
+					// Element validation is intentionally generic to avoid echoing values.
+				}
+				if finding, ok := validateStringArrayField(
+					source,
+					"secrets.commands."+name+".args",
+					argsValue,
+				); ok {
+					findings = append(findings, finding)
+				}
+			}
+		}
+	}
+
+	return findings
+}
+
+func validateSecretReference(raw, source, path string) *ValidationFinding {
+	reference, err := parseSecretReference(raw)
+	if err != nil {
+		return &ValidationFinding{
+			Source:   source,
+			Path:     path,
+			Code:     secretFindingCode(err),
+			Severity: "error",
+			Message:  secretFindingMessage(err),
+		}
+	}
+
+	switch reference.Provider {
+	case secretProviderEnv, secretProviderCommand:
+		return nil
+	default:
+		return &ValidationFinding{
+			Source:   source,
+			Path:     path,
+			Code:     secretCodeUnknownProvider,
+			Severity: "error",
+			Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
+		}
+	}
+}
+
+func validateResolvedSecretReferences(configuration map[string]any) []ValidationFinding {
+	environmentValue, exists := configuration["environment"]
+	if !exists {
+		return nil
+	}
+
+	environment, ok := environmentValue.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	definitions := loadSecretCommandDefinitions(configuration)
+	findings := []ValidationFinding{}
+
+	for _, key := range mapKeys(environment) {
+		value, ok := environment[key].(string)
+		if !ok || !strings.HasPrefix(value, "secret://") {
+			continue
+		}
+
+		reference, err := parseSecretReference(value)
+		if err != nil {
+			findings = append(findings, ValidationFinding{
+				Source:   resolvedValidationSource,
+				Path:     "environment." + key,
+				Code:     secretFindingCode(err),
+				Severity: "error",
+				Message:  secretFindingMessage(err),
+			})
+			continue
+		}
+
+		switch reference.Provider {
+		case secretProviderEnv:
+		case secretProviderCommand:
+			if _, exists := definitions[reference.Reference]; !exists {
+				findings = append(findings, ValidationFinding{
+					Source:   resolvedValidationSource,
+					Path:     "environment." + key,
+					Code:     secretCodeMissingCommand,
+					Severity: "error",
+					Message:  fmt.Sprintf("secret command %q is not configured", reference.Reference),
+				})
+			}
+		default:
+			findings = append(findings, ValidationFinding{
+				Source:   resolvedValidationSource,
+				Path:     "environment." + key,
+				Code:     secretCodeUnknownProvider,
+				Severity: "error",
+				Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
+			})
+		}
+	}
+
+	return findings
+}
+
+func detectConflictingSecretCommands(sources []loadedConfigSource) []ValidationFinding {
+	byName := map[string]map[string]string{}
+
+	for _, source := range sources {
+		if source.ParseError != nil {
+			continue
+		}
+
+		secretsValue, exists := source.Config["secrets"]
+		if !exists {
+			continue
+		}
+
+		secrets, ok := secretsValue.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		commandsValue, exists := secrets["commands"]
+		if !exists {
+			continue
+		}
+
+		commands, ok := commandsValue.(map[string]any)
+		if !ok {
+			continue
+		}
+
+		for name, value := range commands {
+			if _, exists := byName[name]; !exists {
+				byName[name] = map[string]string{}
+			}
+			byName[name][source.Path] = normalizedSecretCommandDefinition(value)
+		}
+	}
+
+	findings := []ValidationFinding{}
+	for name, definitions := range byName {
+		if len(definitions) <= 1 {
+			continue
+		}
+
+		unique := map[string]bool{}
+		for _, definition := range definitions {
+			unique[definition] = true
+		}
+		if len(unique) <= 1 {
+			continue
+		}
+
+		findings = append(findings, ValidationFinding{
+			Source:   resolvedValidationSource,
+			Path:     "secrets.commands." + name,
+			Code:     validationCodeConflictingValue,
+			Severity: "error",
+			Message:  "conflicting secret command definitions across sources",
+		})
+	}
+
+	return findings
+}
+
+func normalizedSecretCommandDefinition(value any) string {
+	definition, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Sprintf("%T", value)
+	}
+
+	command := ""
+	if rawCommand, ok := definition["command"].(string); ok {
+		command = rawCommand
+	}
+
+	args := []string{}
+	if rawArgs, ok := definition["args"].([]any); ok {
+		for _, item := range rawArgs {
+			if arg, ok := item.(string); ok {
+				args = append(args, arg)
+			}
+		}
+	}
+
+	return command + "\x00" + strings.Join(args, "\x00")
+}
+
+func secretFindingCode(err error) string {
+	return secretErrorCode(err)
+}
+
+func secretFindingMessage(err error) string {
+	var typed secretError
+	if errors.As(err, &typed) {
+		return typed.Message
+	}
+	if err == nil {
+		return "secret resolution failed"
+	}
+	return err.Error()
 }
 
 func validateOptionalStringValue(

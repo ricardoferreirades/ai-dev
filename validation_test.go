@@ -743,6 +743,164 @@ func TestLegacyEnvOutputIsUnchangedAndWarns(t *testing.T) {
 	}
 }
 
+func TestSecretEnvAndCommandResolution(t *testing.T) {
+	workspace, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+
+	binary := buildValidationTestBinary(t, workspace)
+	repo := t.TempDir()
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	stateHome := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(configHome, "projects"), 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+
+	commandFixture := filepath.Join(repo, "resolve-secret")
+	if err := os.WriteFile(
+		commandFixture,
+		[]byte("#!/bin/sh\nprintf '%s\\n' 'postgres://user:pass@localhost/app'\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write command fixture: %v", err)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(configHome, "global.toml"),
+		[]byte(strings.Join([]string{
+			"schema = \"v1\"",
+			"[environment]",
+			"APP_ENV = \"development\"",
+			"OPENAI_API_KEY = \"secret://env/OPENAI_API_KEY\"",
+			"[secrets.commands.database-url]",
+			"command = \"" + commandFixture + "\"",
+			"args = []",
+		}, "\n")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	envCommand := exec.Command(binary, "env", "--shell", "sh")
+	envCommand.Dir = repo
+	envCommand.Env = append(
+		isolatedValidationEnvironment(configHome, dataHome, stateHome),
+		"OPENAI_API_KEY=secret-value",
+	)
+	output, err := envCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("env with secrets should pass: %v\n%s", err, output)
+	}
+	text := string(output)
+	for _, fragment := range []string{
+		"export APP_ENV='development'",
+		"export OPENAI_API_KEY='secret-value'",
+	} {
+		if !strings.Contains(text, fragment) {
+			t.Fatalf("expected %s in env output:\n%s", fragment, text)
+		}
+	}
+
+	resolveEnv := exec.Command(binary, "secret", "resolve", "secret://env/OPENAI_API_KEY")
+	resolveEnv.Dir = repo
+	resolveEnv.Env = append(
+		isolatedValidationEnvironment(configHome, dataHome, stateHome),
+		"OPENAI_API_KEY=secret-value",
+	)
+	output, err = resolveEnv.CombinedOutput()
+	if err != nil {
+		t.Fatalf("secret resolve env should pass: %v\n%s", err, output)
+	}
+	if strings.TrimSpace(string(output)) != "secret-value" {
+		t.Fatalf("unexpected env secret resolution: %s", output)
+	}
+
+	resolveCommand := exec.Command(binary, "secret", "resolve", "secret://command/database-url")
+	resolveCommand.Dir = repo
+	resolveCommand.Env = isolatedValidationEnvironment(configHome, dataHome, stateHome)
+	output, err = resolveCommand.CombinedOutput()
+	if err != nil {
+		t.Fatalf("secret resolve command should pass: %v\n%s", err, output)
+	}
+	if strings.TrimSpace(string(output)) != "postgres://user:pass@localhost/app" {
+		t.Fatalf("unexpected command secret resolution: %s", output)
+	}
+}
+
+func TestSecretCheckJSONAndDuplicateResolution(t *testing.T) {
+	workspace, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+
+	binary := buildValidationTestBinary(t, workspace)
+	repo := t.TempDir()
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	stateHome := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(configHome, "projects"), 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+
+	counter := filepath.Join(repo, "counter")
+	counterFile := filepath.Join(repo, "count.txt")
+	if err := os.WriteFile(
+		counter,
+		[]byte("#!/bin/sh\ncount_file=$1\ncount=0\nif [ -f \"$count_file\" ]; then count=$(cat \"$count_file\"); fi\ncount=$((count + 1))\nprintf '%s' \"$count\" > \"$count_file\"\nprintf '%s\\n' \"resolved-value\"\n"),
+		0o700,
+	); err != nil {
+		t.Fatalf("write counter fixture: %v", err)
+	}
+
+	if err := os.WriteFile(
+		filepath.Join(configHome, "global.toml"),
+		[]byte(strings.Join([]string{
+			"schema = \"v1\"",
+			"[environment]",
+			"FIRST = \"secret://command/counter\"",
+			"SECOND = \"secret://command/counter\"",
+			"[secrets.commands.counter]",
+			"command = \"" + counter + "\"",
+			"args = [\"" + counterFile + "\"]",
+		}, "\n")),
+		0o600,
+	); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+
+	check := exec.Command(binary, "secret", "check", "--json")
+	check.Dir = repo
+	check.Env = isolatedValidationEnvironment(configHome, dataHome, stateHome)
+	output, err := check.CombinedOutput()
+	if err != nil {
+		t.Fatalf("secret check should pass: %v\n%s", err, output)
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(output, &payload); err != nil {
+		t.Fatalf("parse secret check json: %v\n%s", err, output)
+	}
+	if valid, ok := payload["valid"].(bool); !ok || !valid {
+		t.Fatalf("expected valid secret check: %+v", payload)
+	}
+	results, ok := payload["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("expected duplicate references to be deduplicated: %+v", payload)
+	}
+
+	countBytes, err := os.ReadFile(counterFile)
+	if err != nil {
+		t.Fatalf("read counter output: %v", err)
+	}
+	if strings.TrimSpace(string(countBytes)) != "1" {
+		t.Fatalf("expected command provider to run once, got %s", countBytes)
+	}
+}
+
 func buildValidationTestBinary(t *testing.T, workspace string) string {
 	t.Helper()
 

@@ -32,6 +32,8 @@ ai-dev root
 ai-dev config [--json | --compact]
 ai-dev env [--shell sh]
 ai-dev validate [--strict] [--json]
+ai-dev secret resolve <reference>
+ai-dev secret check [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -42,9 +44,10 @@ ai-dev version
 - `root` — print the current project root.
 - `config` — print the resolved global and project configuration.
 - `env` — print shell-safe `export` statements for the resolved
-  `[environment]` table.
+  `[environment]` table, resolving `secret://` references first.
 - `validate` — validate the current global, project, and resolved
   configuration context.
+- `secret` — resolve and inspect secret references safely.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -98,12 +101,28 @@ failure. See
 [`docs/checkpoints/04-schema-validation.md`](docs/checkpoints/04-schema-validation.md)
 for the complete schema, diagnostics, migration, and rollback reference.
 
+### Secret references
+
+`ai-dev` supports secret references in `[environment]` values. The
+syntax is `secret://<provider>/<reference>`.
+
+Supported providers in this checkpoint:
+
+- `env` — read the secret from the current process environment.
+- `command` — execute a configured command definition and read its
+  standard output.
+
+See [`docs/checkpoints/05-secrets.md`](docs/checkpoints/05-secrets.md)
+for syntax, command definitions, inspection commands, security
+guarantees, and rollback steps.
+
 ## Environment activation
 
 `ai-dev env --shell sh` prints `export KEY='value'` statements resolved
-from the project's validated `[environment]` configuration table. It
-emits no exports when validation fails. Valid exports can be activated
-manually:
+from the project's validated `[environment]` configuration table. Plain
+values and secret references are resolved before output is emitted. The
+command emits no exports when validation or secret resolution fails.
+Valid exports can be activated manually:
 
 ```sh
 eval "$(ai-dev env --shell sh)"

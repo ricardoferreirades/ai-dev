@@ -10,7 +10,7 @@
 
 ## Planned
 
-- [ ] Checkpoint 5: secret references and secret-provider abstraction
+- [x] Checkpoint 5: secret references and secret-provider abstraction
 - [ ] Checkpoint 6: MCP registry and resolved MCP configuration
 - [ ] Checkpoint 7: Codex, Claude, Cursor, and VS Code adapters
 - [ ] Checkpoint 8: prompt registry

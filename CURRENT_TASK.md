@@ -1,106 +1,82 @@
-# Current Task: Checkpoint 4
+# Current Task: Checkpoint 5
 
 ## Objective
 
-Introduce a versioned configuration schema and reusable validation layer
-before environment activation or future MCP, secret, and client-specific
-resolution.
+Introduce secret references and a provider abstraction so `ai-dev` can
+resolve sensitive values at runtime without storing plaintext secrets in
+project or global TOML configuration.
 
 The checkpoint must not change project detection, configuration merge
 semantics, valid environment export, or direnv behavior.
 
-## Schema
+## Secret model
 
-The current supported schema version is:
+Secret references use the syntax `secret://<provider>/<reference>` and
+are resolved at runtime only.
 
-```toml
-schema = "v1"
-```
+Supported providers:
 
-Schema `v1` recognizes:
+- `env`
+- `command`
 
-- `schema`: string;
-- `name`: string;
-- `profile`: string;
-- `environment`: table of existing supported scalar values;
-- `mcp.servers`: array of strings;
-- `prompts.default`: string;
-- `prompts.project`: string;
-- `rules.enabled`: array of strings.
+Command-backed secrets are defined under `[secrets.commands.<name>]`.
 
-Unknown fields are errors where a table has a defined schema.
+## Resolution flow
 
-Legacy files without `schema` are interpreted as `v1` with a
-`missing_schema` deprecation warning. Strict validation treats warnings
-as failures. Explicit unsupported schema versions are always errors.
+Secret validation applies before environment export or inspection. The
+centralized secret resolver is reused by:
 
-## Validation flow
+- `ai-dev env [--shell sh]`
+- `ai-dev secret resolve <reference>`
+- `ai-dev secret check [--json]`
+- `ai-dev doctor`
+- future secret-aware consumers
 
-Validation applies independently to:
-
-1. `global.toml`;
-2. the current project overlay;
-3. the resolved post-merge configuration.
-
-The centralized validation layer is reused by:
-
-- `ai-dev validate [--strict] [--json]`;
-- `ai-dev doctor`;
-- `ai-dev config`;
-- `ai-dev env`;
-- future configuration consumers.
-
-Validation findings contain source, field path, stable code, severity,
-and a value-safe message. Findings are sorted by source, path, code, and
-message. Source order records global configuration before the project
-overlay.
+Resolved values are cached only for the current process and never
+written to disk.
 
 ## Required stable codes
 
-- `missing_schema`
-- `unsupported_schema`
-- `unknown_field`
-- `invalid_type`
-- `invalid_value`
-- `deprecated_field`
-- `conflicting_value`
-- `invalid_environment_name`
-- `invalid_environment_value`
+- `invalid_secret_reference`
+- `unknown_secret_provider`
+- `missing_secret_value`
+- `empty_secret_value`
+- `missing_secret_command`
+- `secret_command_failed`
+- `secret_command_empty_output`
+- `invalid_secret_command`
+- `secret_resolution_failed`
 
 ## CLI exit status
 
-- `0`: valid configuration;
-- `1`: validation errors, or warnings in strict mode;
-- `2`: invalid command usage.
+- `0`: success
+- `1`: validation or resolution failure
+- `2`: invalid command usage
 
 ## Acceptance criteria
 
-- `schema = "v1"` is recognized.
-- Unsupported schema versions are rejected.
-- Missing schema warns normally and fails in strict mode.
-- Unknown fields and invalid field types are detected.
-- Invalid array element types are detected.
-- Global and project sources are validated independently.
-- The merged configuration is validated.
-- Human, strict, and deterministic JSON output work.
-- Findings include source, path, code, severity, and message.
-- `doctor` classifies missing, valid, deprecated, unsupported,
-  conflicting, and invalid configuration.
-- `config` and `env` validate before producing resolved output.
-- `env` and direnv emit no partial exports after validation failure.
-- Existing commands remain compatible for valid configurations.
-- Tests use isolated temporary directories.
-- `go test ./...` and `go vet ./...` pass.
-- A static temporary binary builds successfully.
-- Documentation covers schema use, migration, validation, examples, and
-  rollback.
+- `secret://env/<name>` references are recognized.
+- Environment-provider references resolve when the variable exists.
+- Missing and empty environment variables fail safely.
+- `secret://command/<name>` references are recognized.
+- Command providers are validated and executed without a shell.
+- Nonzero command exit status and empty output fail safely.
+- Plaintext environment values continue to work.
+- `ai-dev env` resolves secret-backed environment values atomically.
+- `ai-dev secret resolve <reference>` prints only the resolved value.
+- `ai-dev secret check` and `--json` inspect without exposing values.
+- `ai-dev doctor` reports secret-provider status safely.
+- Duplicate references resolve only once per command execution.
+- No resolved values are written to disk.
+- Existing Checkpoint 1–4 commands remain compatible.
+- Automated tests use isolated fixtures only.
+- `go test ./...`, `go vet ./...`, and a static build pass.
+- Documentation covers usage, security, failure modes, and rollback.
 
 ## Out of scope
 
-- Automatic migration
-- Secret providers or secret resolution
+- Persistent secret caching
+- Additional secret providers
+- Secret creation or rotation
 - MCP execution or client generation
 - Prompt or rule file loading
-- Skills, profile resolution beyond scalar validation, machine overlays,
-  plugins, synchronization, packaging
-- Dynamic or network-based schemas
