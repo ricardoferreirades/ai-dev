@@ -38,6 +38,11 @@ ai-dev [--plugin-path <path>]... plugin validate [<plugin-id>] [--json]
 ai-dev [--plugin-path <path>]... plugin status [--json]
 ai-dev [--plugin-path <path>]... plugin refresh [--json]
 ai-dev [--plugin-path <path>]... plugin run <plugin-id> <operation> [--capability <name>] [--input <path>] [--json]
+ai-dev policy list [--json]
+ai-dev policy show <policy-id> [--json]
+ai-dev policy explain <policy-id>
+ai-dev policy evaluate [policy-id] [--json] [--policy-mode disabled|advisory|enforced]
+ai-dev policy report [--json]
 ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]...
 ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
 ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json]
@@ -116,6 +121,7 @@ ai-dev version
 - `machine` — inspect machine identity normalization and overlay path.
 - `context` — print runtime context, active profiles, and merge order.
 - `plugin` — discover, validate, inspect, and invoke external plugins.
+- `policy` — discover, evaluate, and report compliance policy outcomes.
 - `key` — generate, import, export, inspect, and remove local signing/encryption keys.
 - `trust` — manage explicit signer trust state (global and project-scoped).
 - `export` — package configuration into a portable `.aidev` bundle, optionally signed and encrypted.
@@ -242,6 +248,10 @@ checksum verification, synchronization preview, and atomic import behavior.
 See [`docs/checkpoints/12-bundle-signing-encryption.md`](docs/checkpoints/12-bundle-signing-encryption.md)
 for key lifecycle, trust model, security envelope format, signing and encryption workflows,
 verification policy behavior, rotation/revocation guidance, and recovery/rollback procedures.
+
+See [`docs/checkpoints/13-policy-engine-compliance-framework.md`](docs/checkpoints/13-policy-engine-compliance-framework.md)
+for policy schema, discovery and precedence, evaluation operators, enforcement modes,
+compliance reporting, integration points, and rollback guidance.
 
 ## Environment activation
 

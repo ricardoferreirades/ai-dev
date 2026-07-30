@@ -211,6 +211,8 @@ func validateSchemaV1Fields(
 		"profiles":    true,
 		"machine":     true,
 		"plugins":     true,
+		"policy":      true,
+		"policies":    true,
 		"bundles":     true,
 		"environment": true,
 		"mcp":         true,
@@ -252,6 +254,8 @@ func validateSchemaV1Fields(
 	}
 	findings = append(findings, validateMachineField(source, configuration["machine"])...)
 	findings = append(findings, validatePluginsField(source, configuration["plugins"])...)
+	findings = append(findings, validatePolicyField(source, configuration["policy"])...)
+	findings = append(findings, validatePoliciesOverridesField(source, configuration["policies"])...)
 	findings = append(findings, validateBundlesField(source, configuration["bundles"])...)
 
 	findings = append(findings, validateEnvironmentField(source, configuration["environment"])...)
@@ -261,6 +265,138 @@ func validateSchemaV1Fields(
 	findings = append(findings, validateSecretsField(source, configuration["secrets"])...)
 	findings = append(findings, validateClientsField(source, configuration["clients"])...)
 
+	return findings
+}
+
+func validatePolicyField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+	table, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "policy",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "policy must be a table",
+		}}
+	}
+	findings := []ValidationFinding{}
+	for _, key := range mapKeys(table) {
+		if key != "mode" {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "policy." + key,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown field in policy table",
+			})
+		}
+	}
+	if modeValue, exists := table["mode"]; exists {
+		mode, ok := modeValue.(string)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "policy.mode",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "policy.mode must be a string",
+			})
+		} else if !policyModeValid(mode) {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "policy.mode",
+				Code:     validationCodeInvalidValue,
+				Severity: "error",
+				Message:  "policy.mode must be disabled, advisory, or enforced",
+			})
+		}
+	}
+	return findings
+}
+
+func validatePoliciesOverridesField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+	table, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "policies",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "policies must be a table",
+		}}
+	}
+	findings := []ValidationFinding{}
+	for policyID, entry := range table {
+		if !policyIDValid(policyID) {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "policies." + policyID,
+				Code:     policyCodeInvalidIdentifier,
+				Severity: "error",
+				Message:  "invalid policy identifier",
+			})
+			continue
+		}
+		override, ok := entry.(map[string]any)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "policies." + policyID,
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "policy override must be a table",
+			})
+			continue
+		}
+		for _, key := range mapKeys(override) {
+			if key != "enabled" && key != "enforcement" {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "policies." + policyID + "." + key,
+					Code:     policyCodeOverrideInvalid,
+					Severity: "error",
+					Message:  "policy overrides only allow enabled and enforcement",
+				})
+			}
+		}
+		if enabledValue, exists := override["enabled"]; exists {
+			if _, ok := enabledValue.(bool); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "policies." + policyID + ".enabled",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "enabled override must be a boolean",
+				})
+			}
+		}
+		if enforcementValue, exists := override["enforcement"]; exists {
+			enforcement, ok := enforcementValue.(string)
+			if !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "policies." + policyID + ".enforcement",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "enforcement override must be a string",
+				})
+			} else if !policyModeValid(enforcement) {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "policies." + policyID + ".enforcement",
+					Code:     validationCodeInvalidValue,
+					Severity: "error",
+					Message:  "enforcement override must be disabled, advisory, or enforced",
+				})
+			}
+		}
+	}
 	return findings
 }
 

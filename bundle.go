@@ -806,6 +806,12 @@ func buildBundleArchive(paths Paths, options bundleExportOptions) (bundleArchive
 		}
 	}
 
+	if includeConfig {
+		if err := addDirectoryFiles("policies", filepath.Join(paths.ConfigHome, "policies"), ".toml", resources, resourceTypes, "policy"); err != nil {
+			return bundleArchive{}, err
+		}
+	}
+
 	if options.IncludeMachine {
 		if err := addDirectoryFiles("machines", filepath.Join(paths.ConfigHome, "machines"), ".toml", resources, resourceTypes, "machine-overlay"); err != nil {
 			return bundleArchive{}, err
@@ -1275,6 +1281,8 @@ func bundleResourceTargetPath(paths Paths, resourcePath string) (string, error) 
 	case strings.HasPrefix(resourcePath, "plugins/"):
 		relative := strings.TrimPrefix(resourcePath, "plugins/")
 		return filepath.Join(paths.DataHome, "plugins", filepath.FromSlash(relative)), nil
+	case strings.HasPrefix(resourcePath, "policies/"):
+		return filepath.Join(paths.ConfigHome, filepath.FromSlash(resourcePath)), nil
 	default:
 		return "", bundleError{Code: bundleCodeResourceInvalid, Message: fmt.Sprintf("unsupported bundle resource path %s", resourcePath)}
 	}

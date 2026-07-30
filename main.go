@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.12.0"
+const version = "0.13.0"
 
 type Paths struct {
 	ConfigHome string
@@ -73,6 +73,22 @@ func main() {
 	}
 
 	command := remainingArguments[0]
+	commandArguments := remainingArguments[1:]
+
+	policyMode := ""
+	if operation, usesPolicy := operationUsesPolicy(command, commandArguments); usesPolicy {
+		strippedMode, strippedArgs, parseErr := parsePolicyModeFlag(commandArguments)
+		if parseErr != nil {
+			die(parseErr)
+		}
+		policyMode = strippedMode
+		commandArguments = strippedArgs
+		report, policyErr := evaluatePoliciesForOperation(paths, operation, policyMode, command, commandArguments)
+		if policyErr != nil {
+			persistPolicyReport(paths, report)
+			die(policyErr)
+		}
+	}
 
 	switch command {
 	case "info":
@@ -97,92 +113,97 @@ func main() {
 		fmt.Println(info.ProjectRoot)
 
 	case "config":
-		if err := configCommand(paths, remainingArguments[1:]); err != nil {
+		if err := configCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "env":
-		if err := envCommand(paths, remainingArguments[1:]); err != nil {
+		if err := envCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "validate":
-		if err := validateCommand(paths, remainingArguments[1:]); err != nil {
+		if err := validateCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "secret":
-		if err := secretCommand(paths, remainingArguments[1:]); err != nil {
+		if err := secretCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "mcp":
-		if err := mcpCommand(paths, remainingArguments[1:]); err != nil {
+		if err := mcpCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "client":
-		if err := clientCommand(paths, remainingArguments[1:]); err != nil {
+		if err := clientCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "prompt":
-		if err := promptCommand(paths, remainingArguments[1:]); err != nil {
+		if err := promptCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "rule":
-		if err := ruleCommand(paths, remainingArguments[1:]); err != nil {
+		if err := ruleCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "profile":
-		if err := profileCommand(paths, remainingArguments[1:]); err != nil {
+		if err := profileCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "machine":
-		if err := machineCommand(paths, remainingArguments[1:]); err != nil {
+		if err := machineCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "context":
-		if err := contextCommand(paths, remainingArguments[1:]); err != nil {
+		if err := contextCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "export":
-		if err := exportCommand(paths, remainingArguments[1:]); err != nil {
+		if err := exportCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "import":
-		if err := importCommand(paths, remainingArguments[1:]); err != nil {
+		if err := importCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "bundle":
-		if err := bundleCommand(paths, remainingArguments[1:]); err != nil {
+		if err := bundleCommand(paths, commandArguments); err != nil {
+			die(err)
+		}
+
+	case "policy":
+		if err := policyCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "key":
-		if err := keyCommand(paths, remainingArguments[1:]); err != nil {
+		if err := keyCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "trust":
-		if err := trustCommand(paths, remainingArguments[1:]); err != nil {
+		if err := trustCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "sync":
-		if err := syncCommand(paths, remainingArguments[1:]); err != nil {
+		if err := syncCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
 	case "plugin":
-		if err := pluginCommand(paths, remainingArguments[1:]); err != nil {
+		if err := pluginCommand(paths, commandArguments); err != nil {
 			die(err)
 		}
 
@@ -216,19 +237,19 @@ func usage() {
   ai-dev project-id
   ai-dev root
   ai-dev config [--json | --compact]
-  ai-dev env [--shell sh]
-	ai-dev validate [--strict] [--json] [--bundle <path>]
+	ai-dev env [--shell sh] [--policy-mode disabled|advisory|enforced]
+	ai-dev validate [--strict] [--json] [--bundle <path>] [--policy-mode disabled|advisory|enforced]
   ai-dev secret resolve <reference>
   ai-dev secret check [--json]
 	ai-dev mcp list [--enabled] [--json]
 	ai-dev mcp show <server-name> [--json]
-	ai-dev mcp resolve [--include-disabled] [--resolve-secrets]
+	ai-dev mcp resolve [--include-disabled] [--resolve-secrets] [--policy-mode disabled|advisory|enforced]
 	ai-dev mcp check [--json]
 	ai-dev client list [--json]
 	ai-dev client show <client> [--json]
 	ai-dev client path <client> [--scope <scope>] [--json]
-	ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]
-	ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]
+	ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json] [--policy-mode disabled|advisory|enforced]
+	ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force] [--policy-mode disabled|advisory|enforced]
 	ai-dev client compare [--json]
 	ai-dev prompt list [--json]
 	ai-dev prompt show <identifier> [--json]
@@ -246,9 +267,9 @@ func usage() {
 	ai-dev profile resolve [--with-project] [--json]
 	ai-dev machine show [--json]
 	ai-dev context [--json]
-	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]...
-	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
-	ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json]
+	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]... [--policy-mode disabled|advisory|enforced]
+	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json] [--policy-mode disabled|advisory|enforced]
+	ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json] [--policy-mode disabled|advisory|enforced]
 	ai-dev bundle show <bundle> [--json] [--decrypt] [--key <key-id>]
 	ai-dev bundle list [directory] [--json]
 	ai-dev bundle metadata <bundle> [--json]
@@ -257,7 +278,12 @@ func usage() {
 	ai-dev bundle verify-signature <bundle> [--json]
 	ai-dev bundle signatures <bundle> [--json]
 	ai-dev bundle recipients <bundle> [--json]
-	ai-dev bundle decrypt <bundle> [--output <path>] [--key <key-id>] [--json]
+	ai-dev bundle decrypt <bundle> [--output <path>] [--key <key-id>] [--json] [--policy-mode disabled|advisory|enforced]
+		ai-dev policy list [--json]
+		ai-dev policy show <policy-id> [--json]
+		ai-dev policy explain <policy-id>
+		ai-dev policy evaluate [policy-id] [--json] [--policy-mode disabled|advisory|enforced]
+		ai-dev policy report [--json]
 	ai-dev bundle reencrypt <bundle> [--add-recipient <key-id>]... [--remove-recipient <key-id>]... [--output <path>] [--key <key-id>]
 	ai-dev sync preview <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
 	ai-dev sync <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
@@ -300,6 +326,7 @@ Commands:
 	export       Create a portable configuration bundle
 	import       Validate and import a configuration bundle
 	bundle       Verify, inspect, and diff configuration bundles
+	policy       Evaluate and report configuration compliance policies
 	key          Manage signing and encryption keys
 	trust        Manage signer trust state for bundle policy
 	sync         Preview or apply local bundle synchronization
@@ -963,6 +990,13 @@ func doctor(paths Paths) error {
 						}
 					}
 
+					for _, line := range policyDoctorLines(paths) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -1008,7 +1042,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 12 is available.")
+	fmt.Println("Everything required for Checkpoint 13 is available.")
 	return nil
 }
 
