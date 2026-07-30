@@ -1,71 +1,80 @@
-# Current Task: Checkpoint 7
+# Current Task: Checkpoint 8
 
 ## Objective
 
-Introduce a centralized AI client adapter framework so `ai-dev` can
-translate the validated, resolved client-neutral MCP model into
-client-specific configuration for supported tools.
+Introduce a centralized prompt and rule registry so `ai-dev` can
+discover, validate, resolve, compose, and expose reusable prompt and
+rule resources independently of any AI client.
 
-This checkpoint adds adapter listing, validation, generation,
-destination discovery, comparison, and safe optional output-file writing.
-It must not install into real client configuration files.
+This checkpoint adds client-neutral prompt/rule discovery and
+composition only. It must not install or format prompt/rule content for
+specific AI clients.
 
-## Adapter model
+## Registry model
 
-Supported adapters:
+Supported resource kinds:
 
-- `codex`
-- `claude`
-- `cursor`
-- `vscode`
+- `prompts`
+- `rules`
 
-Adapters consume resolved MCP servers from existing config merge and
-validation flows. They do not reparse global/project files.
+Registry files are discovered recursively from configurable directories.
+Default directories:
 
-Optional client overrides are supported via schema v1:
+- `~/.config/ai-dev/prompts`
+- `~/.config/ai-dev/rules`
 
-```toml
-[clients.codex]
-enabled = true
+Registry file formats:
 
-[clients.cursor]
-enabled = false
-```
+- `.md`
+- `.txt`
+
+Identifiers are derived from relative paths and namespaces:
+
+`backend/reviewer.md` -> `backend/reviewer`
+
+Optional YAML front matter metadata fields:
+
+- `title`
+- `description`
+- `version`
+- `author`
+- `tags`
 
 ## Commands
 
-- `ai-dev client list [--json]`
-- `ai-dev client show <client> [--json]`
-- `ai-dev client path <client> [--scope <scope>] [--json]`
-- `ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]`
-- `ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]`
-- `ai-dev client compare [--json]`
+- `ai-dev prompt list [--json]`
+- `ai-dev prompt show <identifier> [--json]`
+- `ai-dev prompt search <query> [--json]`
+- `ai-dev prompt resolve [--json]`
+- `ai-dev prompt info [--json]`
+- `ai-dev rule list [--json]`
+- `ai-dev rule show <identifier> [--json]`
+- `ai-dev rule search <query> [--json]`
+- `ai-dev rule resolve [--json]`
+- `ai-dev rule info [--json]`
 
 ## Safety and validation
 
-- Adapters validate transport, field, scope, format, and secret compatibility.
-- Unsupported field handling is explicit via warnings/errors.
-- `--resolve-secrets` is opt-in and atomic.
-- `--strict` upgrades warnings to generation/validation failures.
-- Optional output-file writes are atomic and overwrite-protected.
-- Doctor includes adapter registration, path ambiguity, executable detection, and compatibility diagnostics.
+- Validation covers duplicate IDs, unsupported formats, malformed/invalid metadata, empty resources, and missing enabled references.
+- Prompt/rule resolution is deterministic and client-neutral.
+- Duplicate enabled identifiers are deduplicated (first occurrence wins).
+- Content is preserved exactly except optional trailing newline normalization in composition.
+- Doctor reports prompt/rule registry paths, counts, duplicate identifiers, invalid metadata, and missing references.
 
 ## Required stable codes
 
-- `unknown_client`
-- `client_disabled`
-- `unsupported_client_format`
-- `unsupported_client_scope`
-- `unsupported_client_transport`
-- `unsupported_client_field`
-- `client_generation_failed`
-- `client_validation_failed`
-- `client_path_ambiguous`
-- `client_path_unavailable`
-- `client_output_exists`
-- `client_output_write_failed`
-- `client_secret_resolution_failed`
-- `client_configuration_incompatible`
+- `prompt_not_found`
+- `rule_not_found`
+- `duplicate_prompt`
+- `duplicate_rule`
+- `invalid_prompt_metadata`
+- `invalid_rule_metadata`
+- `invalid_prompt_identifier`
+- `invalid_rule_identifier`
+- `unsupported_prompt_format`
+- `unsupported_rule_format`
+- `empty_prompt`
+- `empty_rule`
 
 ## CLI exit status
 

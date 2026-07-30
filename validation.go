@@ -99,6 +99,7 @@ func validateConfigurationForProject(
 			)...,
 		)
 		findings = append(findings, validateResolvedSecretReferences(resolved)...)
+		findings = append(findings, validatePromptAndRuleRegistries(paths, info, resolved, sources)...)
 	}
 
 	sortValidationFindings(findings)
@@ -843,7 +844,7 @@ func validatePromptsField(source string, value any) []ValidationFinding {
 	}
 
 	findings := []ValidationFinding{}
-	allowed := map[string]bool{"default": true, "project": true}
+	allowed := map[string]bool{"default": true, "project": true, "enabled": true, "registry": true}
 	for _, key := range mapKeys(prompts) {
 		if !allowed[key] {
 			findings = append(findings, ValidationFinding{
@@ -872,6 +873,20 @@ func validatePromptsField(source string, value any) []ValidationFinding {
 		findings = append(findings, finding)
 	}
 
+	if enabledValue, exists := prompts["enabled"]; exists {
+		if finding, ok := validateStringArrayField(source, "prompts.enabled", enabledValue); ok {
+			findings = append(findings, finding)
+		}
+	}
+
+	if finding, ok := validateOptionalStringValue(
+		source,
+		"prompts.registry",
+		prompts["registry"],
+	); ok {
+		findings = append(findings, finding)
+	}
+
 	return findings
 }
 
@@ -892,7 +907,7 @@ func validateRulesField(source string, value any) []ValidationFinding {
 	}
 
 	findings := []ValidationFinding{}
-	allowed := map[string]bool{"enabled": true}
+	allowed := map[string]bool{"enabled": true, "registry": true}
 	for _, key := range mapKeys(rules) {
 		if !allowed[key] {
 			findings = append(findings, ValidationFinding{
@@ -909,6 +924,14 @@ func validateRulesField(source string, value any) []ValidationFinding {
 		if finding, ok := validateStringArrayField(source, "rules.enabled", enabledValue); ok {
 			findings = append(findings, finding)
 		}
+	}
+
+	if finding, ok := validateOptionalStringValue(
+		source,
+		"rules.registry",
+		rules["registry"],
+	); ok {
+		findings = append(findings, finding)
 	}
 
 	return findings

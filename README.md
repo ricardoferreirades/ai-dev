@@ -44,6 +44,16 @@ ai-dev client path <client> [--scope <scope>] [--json]
 ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]
 ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]
 ai-dev client compare [--json]
+ai-dev prompt list [--json]
+ai-dev prompt show <identifier> [--json]
+ai-dev prompt search <query> [--json]
+ai-dev prompt resolve [--json]
+ai-dev prompt info [--json]
+ai-dev rule list [--json]
+ai-dev rule show <identifier> [--json]
+ai-dev rule search <query> [--json]
+ai-dev rule resolve [--json]
+ai-dev rule info [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -60,6 +70,8 @@ ai-dev version
 - `secret` — resolve and inspect secret references safely.
 - `mcp` — inspect, resolve, and validate the MCP server registry.
 - `client` — inspect adapter capabilities and generate client-specific MCP configuration.
+- `prompt` — discover, inspect, search, and resolve prompt registry resources.
+- `rule` — discover, inspect, search, and resolve rule registry resources.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -147,6 +159,10 @@ and rollback guidance.
 See [`docs/checkpoints/07-ai-client-adapters.md`](docs/checkpoints/07-ai-client-adapters.md)
 for the client adapter architecture, capability matrix, format/scope behavior,
 validation and comparison commands, secret handling, output file safety, and rollback guidance.
+
+See [`docs/checkpoints/08-prompt-rule-registry.md`](docs/checkpoints/08-prompt-rule-registry.md)
+for prompt/rule registry layout, metadata validation, namespacing, composition,
+search and resolve behavior, deterministic ordering, and rollback guidance.
 
 ## Environment activation
 

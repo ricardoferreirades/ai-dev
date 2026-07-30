@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.7.0"
+const version = "0.8.0"
 
 type Paths struct {
 	ConfigHome string
@@ -112,6 +112,16 @@ func main() {
 			die(err)
 		}
 
+	case "prompt":
+		if err := promptCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
+	case "rule":
+		if err := ruleCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -155,6 +165,16 @@ func usage() {
 	ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json]
 	ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force]
 	ai-dev client compare [--json]
+	ai-dev prompt list [--json]
+	ai-dev prompt show <identifier> [--json]
+	ai-dev prompt search <query> [--json]
+	ai-dev prompt resolve [--json]
+	ai-dev prompt info [--json]
+	ai-dev rule list [--json]
+	ai-dev rule show <identifier> [--json]
+	ai-dev rule search <query> [--json]
+	ai-dev rule resolve [--json]
+	ai-dev rule info [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -169,6 +189,8 @@ Commands:
   secret       Resolve and inspect secret references
 	mcp          Inspect and validate resolved MCP registry
 	client       Inspect and generate client adapter configurations
+	prompt       Inspect and resolve prompt registry resources
+	rule         Inspect and resolve rule registry resources
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -798,6 +820,13 @@ func doctor(paths Paths) error {
 						}
 					}
 
+					for _, line := range registryDoctorLines(paths, info, resolved, loadedSources) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -843,7 +872,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 7 is available.")
+	fmt.Println("Everything required for Checkpoint 8 is available.")
 	return nil
 }
 
