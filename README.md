@@ -1,0 +1,120 @@
+# ai-dev
+
+`ai-dev` is a user-level AI development environment manager for macOS and
+Linux.
+
+It keeps configuration outside individual Git repositories and worktrees
+so that developers can consistently access environment variables, MCP
+servers, prompts, rules, skills, and agent configuration from any project.
+
+## Runtime locations
+
+- Configuration: `~/.config/ai-dev`
+- Installed binary: `~/.local/bin/ai-dev`
+- Data: `~/.local/share/ai-dev`
+- State: `~/.local/state/ai-dev`
+
+This Git repository contains only the source code; none of the locations
+above are tracked here.
+
+## Building
+
+```sh
+CGO_ENABLED=0 go build -trimpath -o ./bin/ai-dev .
+```
+
+## Commands
+
+```text
+ai-dev info
+ai-dev project-id
+ai-dev root
+ai-dev config [--json | --compact]
+ai-dev env [--shell sh]
+ai-dev config-path
+ai-dev doctor
+ai-dev version
+```
+
+- `info` — print resolved project and Git information.
+- `project-id` — print the stable project identifier.
+- `root` — print the current project root.
+- `config` — print the resolved global and project configuration.
+- `env` — print shell-safe `export` statements for the resolved
+  `[environment]` table.
+- `config-path` — print the expected project configuration path.
+- `doctor` — check commands, directories, and configuration files.
+- `version` — print the ai-dev version.
+
+## Configuration
+
+Configuration is TOML-based and layered:
+
+1. `~/.config/ai-dev/global.toml` — applies to every project.
+2. `~/.config/ai-dev/projects/<project-id>.toml` — overlays specific to
+   one project, merged recursively over the global configuration (arrays
+   are merged in order and de-duplicated).
+
+Run `ai-dev config-path` from inside a project to find its overlay path,
+and `ai-dev config` to see the fully resolved configuration.
+
+## Environment activation
+
+`ai-dev env --shell sh` prints `export KEY='value'` statements resolved
+from the project's `[environment]` configuration table. These can be
+activated manually:
+
+```sh
+eval "$(ai-dev env --shell sh)"
+```
+
+### Automatic activation with direnv
+
+Checkpoint 3B adds automatic activation and unloading through
+[direnv](https://direnv.net/), without requiring a `.envrc` file inside
+every individual repository. See
+[`docs/checkpoints/03b-direnv.md`](docs/checkpoints/03b-direnv.md) for the
+full design, and `shell/direnv/ai-dev.sh` for the reusable helper.
+
+Quick start:
+
+```sh
+mkdir -p ~/.config/direnv/lib
+cp shell/direnv/ai-dev.sh ~/.config/direnv/lib/ai-dev.sh
+```
+
+Then configure the shell after direnv's standard hook:
+
+```sh
+# ~/.bashrc
+eval "$(direnv hook bash)"
+. "$HOME/.config/direnv/lib/ai-dev.sh"
+use_ai_dev_hook bash
+
+# Or, in ~/.zshrc:
+eval "$(direnv hook zsh)"
+. "$HOME/.config/direnv/lib/ai-dev.sh"
+use_ai_dev_hook zsh
+```
+
+Finally, create and allow one `.envrc` in the common parent:
+
+```sh
+mkdir -p ~/code
+printf '%s\n' 'use_ai_dev' >~/code/.envrc
+direnv allow ~/code
+```
+
+The companion shell hook ensures moving between sibling projects beneath
+the same parent `.envrc` updates the resolved project overlay.
+
+## Development
+
+```sh
+gofmt -l .
+go vet ./...
+go test ./...
+```
+
+See `AGENTS.md` for detailed contribution rules and `CURRENT_TASK.md` for
+the checkpoint currently in progress.
