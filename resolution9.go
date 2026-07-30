@@ -41,6 +41,7 @@ type runtimeResolutionOptions struct {
 	MachineOverride string
 	CLIProfiles     []string
 	ProfileOnly     bool
+	PluginPaths     []string
 }
 
 type appliedSource struct {
@@ -102,6 +103,12 @@ func parseRuntimeOptions(arguments []string) (runtimeResolutionOptions, []string
 			index++
 			opts.ProfileOnly = true
 			opts.CLIProfiles = append(opts.CLIProfiles, arguments[index])
+		case "--plugin-path":
+			if index+1 >= len(arguments) {
+				return runtimeResolutionOptions{}, nil, UsageError{Message: "--plugin-path requires a value"}
+			}
+			index++
+			opts.PluginPaths = append(opts.PluginPaths, arguments[index])
 		default:
 			remaining = append(remaining, arguments[index:]...)
 			return opts, remaining, nil

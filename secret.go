@@ -93,6 +93,26 @@ func (resolver *secretResolver) Resolve(
 	return value, nil
 }
 
+func (resolver *secretResolver) RegisterProvider(name string, provider secretProvider) error {
+	if strings.TrimSpace(name) == "" {
+		return secretError{Code: secretCodeUnknownProvider, Message: "secret provider name is empty"}
+	}
+	if provider == nil {
+		return secretError{Code: secretCodeUnknownProvider, Message: "secret provider is nil"}
+	}
+	if _, exists := resolver.providers[name]; exists {
+		return secretError{Code: secretCodeUnknownProvider, Provider: name, Message: fmt.Sprintf("secret provider %q is already registered", name)}
+	}
+	resolver.providers[name] = provider
+	return nil
+}
+
+func newProjectSecretResolver(paths Paths, definitions map[string]SecretCommandDefinition) *secretResolver {
+	resolver := newSecretResolver(definitions)
+	_ = registerPluginSecretProviders(paths, resolver)
+	return resolver
+}
+
 func parseSecretReference(raw string) (SecretReference, error) {
 	if !strings.HasPrefix(raw, "secret://") {
 		return SecretReference{}, secretError{

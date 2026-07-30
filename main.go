@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.9.0"
+const version = "0.10.0"
 
 type Paths struct {
 	ConfigHome string
@@ -151,6 +151,11 @@ func main() {
 			die(err)
 		}
 
+	case "plugin":
+		if err := pluginCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -176,7 +181,7 @@ func main() {
 
 func usage() {
 	fmt.Print(`Usage:
-	ai-dev [--machine <machine-id>] [--profile <profile>]... [--profile-only <profile>]... <command>
+	ai-dev [--machine <machine-id>] [--profile <profile>]... [--profile-only <profile>]... [--plugin-path <path>]... <command>
   ai-dev info
   ai-dev project-id
   ai-dev root
@@ -211,6 +216,12 @@ func usage() {
 	ai-dev profile resolve [--with-project] [--json]
 	ai-dev machine show [--json]
 	ai-dev context [--json]
+	ai-dev plugin list [--json]
+	ai-dev plugin show <plugin-id> [--json] [--handshake]
+	ai-dev plugin validate [<plugin-id>] [--json]
+	ai-dev plugin status [--json]
+	ai-dev plugin refresh [--json]
+	ai-dev plugin run <plugin-id> <operation> [--capability <name>] [--input <path>] [--json]
 	ai-dev config sources [--json]
 	ai-dev config origin <field-path> [--json]
   ai-dev config-path
@@ -232,6 +243,7 @@ Commands:
 	profile      Inspect and resolve reusable profile overlays
 	machine      Inspect machine overlay selection and status
 	context      Display active source resolution context
+	plugin       Discover, validate, and invoke external ai-dev plugins
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -853,7 +865,31 @@ func doctor(paths Paths) error {
 						}
 					}
 
-					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+					pluginStatus, pluginErr := pluginStatus(paths, true)
+					if pluginErr != nil {
+						fmt.Printf("[error] plugins: %v\n", pluginErr)
+						problems++
+					} else {
+						fmt.Printf(
+							"[ok] plugins summary: discovered=%d enabled=%d compatible=%d invalid=%d conflicts=%d handshake_failures=%d\n",
+							pluginStatus.DiscoveredPlugins,
+							pluginStatus.EnabledPlugins,
+							pluginStatus.CompatiblePlugins,
+							pluginStatus.InvalidPlugins,
+							pluginStatus.CapabilityConflicts,
+							pluginStatus.HandshakeFailures,
+						)
+						for _, finding := range pluginStatus.Findings {
+							prefix := "[notice]"
+							if finding.Severity == "error" {
+								prefix = "[error]"
+								problems++
+							}
+							fmt.Printf("%s plugin=%s capability=%s operation=%s code=%s message=%s\n", prefix, finding.PluginID, finding.Capability, finding.Operation, finding.Code, finding.Message)
+						}
+					}
+
+					resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
 						fmt.Printf("[error] secret provider checks: %v\n", err)
@@ -898,7 +934,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 9 is available.")
+	fmt.Println("Everything required for Checkpoint 10 is available.")
 	return nil
 }
 
@@ -955,7 +991,7 @@ func envCommand(paths Paths, arguments []string) error {
 		return errors.New("[environment] must be a TOML table")
 	}
 
-	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 	values, err := resolveEnvironmentValues(context.Background(), environment, resolver)
 	if err != nil {
 		return err
@@ -1147,7 +1183,7 @@ func secretResolveCommand(paths Paths, rawReference string) error {
 
 	ctx := context.Background()
 	if reference.Provider == secretProviderEnv {
-		resolver := newSecretResolver(map[string]SecretCommandDefinition{})
+		resolver := newProjectSecretResolver(paths, map[string]SecretCommandDefinition{})
 		value, err := resolver.Resolve(ctx, reference)
 		if err != nil {
 			return err
@@ -1166,7 +1202,7 @@ func secretResolveCommand(paths Paths, rawReference string) error {
 		return err
 	}
 
-	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 	value, err := resolver.Resolve(ctx, reference)
 	if err != nil {
 		return err
@@ -1186,7 +1222,7 @@ func secretCheckCommand(paths Paths, jsonOutput bool) error {
 		return err
 	}
 
-	resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
+	resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 	results, err := secretCheckResults(context.Background(), resolved, resolver)
 	if err != nil {
 		return err

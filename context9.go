@@ -370,6 +370,13 @@ func configSourcesCommand(paths Paths, arguments []string) error {
 	}
 
 	entries := buildConfigSourceOutputs(ctx.Sources)
+	pluginEntries, pluginErr := pluginSourceOutputs(paths)
+	if pluginErr == nil {
+		for _, entry := range pluginEntries {
+			entry.Precedence = len(entries) + 1
+			entries = append(entries, entry)
+		}
+	}
 	if jsonOutput {
 		encoded, err := json.MarshalIndent(map[string]any{"sources": entries}, "", "  ")
 		if err != nil {
@@ -383,6 +390,29 @@ func configSourcesCommand(paths Paths, arguments []string) error {
 		fmt.Printf("precedence=%d type=%s identifier=%s path=%s exists=%t valid=%t selected_by=%s\n", entry.Precedence, entry.Type, entry.Identifier, entry.Path, entry.Exists, entry.Valid, entry.SelectedBy)
 	}
 	return nil
+}
+
+func pluginSourceOutputs(paths Paths) ([]configSourceOutput, error) {
+	result := []configSourceOutput{}
+	discovery, err := discoverPluginsForCurrentInvocation(paths)
+	if err != nil {
+		return result, err
+	}
+	plugins := sortDiscoveredPlugins(discovery.Plugins)
+	for _, plugin := range plugins {
+		if plugin.Manifest.ID == "" {
+			continue
+		}
+		result = append(result, configSourceOutput{
+			Type:       "plugin",
+			Identifier: plugin.Manifest.ID,
+			Path:       plugin.ManifestPath,
+			Exists:     fileExists(plugin.ManifestPath),
+			Valid:      len(pluginErrorFindings(plugin.Findings)) == 0,
+			SelectedBy: plugin.SearchSource,
+		})
+	}
+	return result, nil
 }
 
 func buildConfigSourceOutputs(sources []appliedSource) []configSourceOutput {

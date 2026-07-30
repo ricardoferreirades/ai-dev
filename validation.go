@@ -110,6 +110,7 @@ func validateConfigurationForProject(
 		)
 		findings = append(findings, validateResolvedSecretReferences(resolved)...)
 		findings = append(findings, validatePromptAndRuleRegistries(paths, info, resolved, sources)...)
+		findings = append(findings, pluginValidatorFindings(paths, resolved)...)
 	}
 
 	sortValidationFindings(findings)
@@ -209,6 +210,7 @@ func validateSchemaV1Fields(
 		"profile":     true,
 		"profiles":    true,
 		"machine":     true,
+		"plugins":     true,
 		"environment": true,
 		"mcp":         true,
 		"prompts":     true,
@@ -248,6 +250,7 @@ func validateSchemaV1Fields(
 		}
 	}
 	findings = append(findings, validateMachineField(source, configuration["machine"])...)
+	findings = append(findings, validatePluginsField(source, configuration["plugins"])...)
 
 	findings = append(findings, validateEnvironmentField(source, configuration["environment"])...)
 	findings = append(findings, validateMCPField(source, configuration["mcp"])...)
@@ -290,6 +293,162 @@ func validateMachineField(source string, value any) []ValidationFinding {
 
 	if finding, ok := validateOptionalStringValue(source, "machine.id", table["id"]); ok {
 		findings = append(findings, finding)
+	}
+
+	return findings
+}
+
+func validatePluginsField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+	table, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "plugins",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "plugins must be a table",
+		}}
+	}
+
+	findings := []ValidationFinding{}
+	if pathsValue, exists := table["paths"]; exists {
+		if finding, ok := validateStringArrayField(source, "plugins.paths", pathsValue); ok {
+			findings = append(findings, finding)
+		}
+	}
+
+	for _, key := range mapKeys(table) {
+		if key == "paths" {
+			continue
+		}
+		if err := validatePluginIdentifier(key); err != nil {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "plugins." + key,
+				Code:     pluginCodeInvalidIdentifier,
+				Severity: "error",
+				Message:  err.Error(),
+			})
+			continue
+		}
+
+		entry, ok := table[key].(map[string]any)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "plugins." + key,
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "plugin configuration must be a table",
+			})
+			continue
+		}
+
+		allowed := map[string]bool{
+			"enabled":             true,
+			"timeout_seconds":     true,
+			"working_directory":   true,
+			"inherit_environment": true,
+			"environment":         true,
+			"config":              true,
+		}
+		for _, entryKey := range mapKeys(entry) {
+			if !allowed[entryKey] {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + "." + entryKey,
+					Code:     validationCodeUnknownField,
+					Severity: "error",
+					Message:  "unknown plugin configuration field",
+				})
+			}
+		}
+
+		if enabledValue, exists := entry["enabled"]; exists {
+			if _, ok := enabledValue.(bool); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + ".enabled",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "enabled must be a boolean",
+				})
+			}
+		}
+		if timeoutValue, exists := entry["timeout_seconds"]; exists {
+			switch typed := timeoutValue.(type) {
+			case int64:
+				if typed <= 0 {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "plugins." + key + ".timeout_seconds",
+						Code:     pluginCodeConfigurationInvalid,
+						Severity: "error",
+						Message:  "timeout_seconds must be greater than zero",
+					})
+				}
+			default:
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + ".timeout_seconds",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "timeout_seconds must be an integer",
+				})
+			}
+		}
+		if finding, ok := validateOptionalStringValue(source, "plugins."+key+".working_directory", entry["working_directory"]); ok {
+			findings = append(findings, finding)
+		}
+		if inheritValue, exists := entry["inherit_environment"]; exists {
+			if _, ok := inheritValue.(bool); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + ".inherit_environment",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "inherit_environment must be a boolean",
+				})
+			}
+		}
+		if environmentValue, exists := entry["environment"]; exists {
+			environmentTable, ok := environmentValue.(map[string]any)
+			if !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + ".environment",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "environment must be a table",
+				})
+			} else {
+				for _, envKey := range mapKeys(environmentTable) {
+					if _, ok := environmentTable[envKey].(string); !ok {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "plugins." + key + ".environment." + envKey,
+							Code:     validationCodeInvalidType,
+							Severity: "error",
+							Message:  "plugin environment value must be a string",
+						})
+					}
+				}
+			}
+		}
+		if configValue, exists := entry["config"]; exists {
+			if _, ok := configValue.(map[string]any); !ok {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "plugins." + key + ".config",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "config must be a table",
+				})
+			}
+		}
 	}
 
 	return findings

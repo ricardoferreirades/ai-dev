@@ -274,13 +274,33 @@ func mcpShowCommand(paths Paths, arguments []string) error {
 func mcpResolveCommand(paths Paths, arguments []string) error {
 	includeDisabled := false
 	resolveSecrets := false
-	for _, argument := range arguments {
+	transforms := []string{}
+	for index := 0; index < len(arguments); index++ {
+		argument := arguments[index]
 		switch argument {
 		case "--include-disabled":
 			includeDisabled = true
 		case "--resolve-secrets":
 			resolveSecrets = true
+		case "--transform":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--transform requires a value"}
+			}
+			index++
+			value := strings.TrimSpace(arguments[index])
+			if value == "" {
+				return UsageError{Message: "--transform requires a value"}
+			}
+			transforms = append(transforms, value)
 		default:
+			if strings.HasPrefix(argument, "--transform=") {
+				value := strings.TrimSpace(strings.TrimPrefix(argument, "--transform="))
+				if value == "" {
+					return UsageError{Message: "--transform requires a value"}
+				}
+				transforms = append(transforms, value)
+				continue
+			}
 			return UsageError{Message: fmt.Sprintf("unknown mcp resolve option: %s", argument)}
 		}
 	}
@@ -301,7 +321,7 @@ func mcpResolveCommand(paths Paths, arguments []string) error {
 	}
 
 	if resolveSecrets {
-		resolver := newSecretResolver(loadSecretCommandDefinitions(resolvedConfig))
+		resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolvedConfig))
 		if err := resolveMCPServerSecrets(context.Background(), candidateServers, resolver); err != nil {
 			return err
 		}
@@ -327,6 +347,14 @@ func mcpResolveCommand(paths Paths, arguments []string) error {
 		output.Servers[name] = value
 	}
 
+	if len(transforms) > 0 {
+		transformedServers, err := applyMCPPluginTransforms(paths, output.Servers, transforms)
+		if err != nil {
+			return err
+		}
+		output.Servers = transformedServers
+	}
+
 	content, err := json.MarshalIndent(output, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode mcp resolve output: %w", err)
@@ -334,6 +362,64 @@ func mcpResolveCommand(paths Paths, arguments []string) error {
 
 	fmt.Println(string(content))
 	return nil
+}
+
+func applyMCPPluginTransforms(paths Paths, servers map[string]MCPResolveServer, transforms []string) (map[string]MCPResolveServer, error) {
+	model := map[string]any{"servers": cloneMCPResolveServerMap(servers)}
+	for _, transform := range transforms {
+		parts := strings.SplitN(transform, ":", 2)
+		if len(parts) != 2 || strings.TrimSpace(parts[0]) == "" || strings.TrimSpace(parts[1]) == "" {
+			return nil, UsageError{Message: fmt.Sprintf("invalid transform selector %q (expected plugin-id:operation)", transform)}
+		}
+		pluginID := strings.TrimSpace(parts[0])
+		operation := strings.TrimSpace(parts[1])
+		response, err := runPluginCapabilityOperation(paths, pluginID, pluginCapabilityMCPTransform, operation, map[string]any{"mcp_model": cloneMap(model)})
+		if err != nil {
+			return nil, err
+		}
+		output, ok := response["output"].(map[string]any)
+		if !ok {
+			return nil, pluginError{Code: pluginCodeOutputInvalid, Message: fmt.Sprintf("transform %q did not return output object", transform)}
+		}
+		transformedModel, ok := output["mcp_model"].(map[string]any)
+		if !ok {
+			return nil, pluginError{Code: pluginCodeOutputInvalid, Message: fmt.Sprintf("transform %q did not return output.mcp_model", transform)}
+		}
+		model = transformedModel
+	}
+
+	serversRaw, exists := model["servers"]
+	if !exists {
+		return nil, pluginError{Code: pluginCodeOutputInvalid, Message: "transformed MCP model is missing servers"}
+	}
+	encoded, err := json.Marshal(serversRaw)
+	if err != nil {
+		return nil, pluginError{Code: pluginCodeOutputInvalid, Message: "failed to encode transformed servers"}
+	}
+	decoded := map[string]MCPResolveServer{}
+	if err := json.Unmarshal(encoded, &decoded); err != nil {
+		return nil, pluginError{Code: pluginCodeOutputInvalid, Message: "transformed servers have invalid schema"}
+	}
+	return decoded, nil
+}
+
+func cloneMCPResolveServerMap(servers map[string]MCPResolveServer) map[string]any {
+	result := map[string]any{}
+	for name, server := range servers {
+		result[name] = map[string]any{
+			"transport":           server.Transport,
+			"command":             server.Command,
+			"args":                cloneStringSlice(server.Args),
+			"cwd":                 server.Cwd,
+			"url":                 server.URL,
+			"headers":             cloneStringMap(server.Headers),
+			"environment":         cloneStringMap(server.Environment),
+			"enabled":             server.Enabled,
+			"timeout_seconds":     server.TimeoutSeconds,
+			"inherit_environment": server.InheritEnvironment,
+		}
+	}
+	return result
 }
 
 func mcpCheckCommand(paths Paths, arguments []string) error {
@@ -352,7 +438,7 @@ func mcpCheckCommand(paths Paths, arguments []string) error {
 		return err
 	}
 
-	resolver := newSecretResolver(loadSecretCommandDefinitions(resolvedConfig))
+	resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolvedConfig))
 	results := make([]MCPCheckResult, 0)
 	allValid := true
 

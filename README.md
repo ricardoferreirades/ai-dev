@@ -32,6 +32,12 @@ ai-dev root
 ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config [--json | --compact]
 ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config sources [--json]
 ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config origin <field.path> [--json]
+ai-dev [--plugin-path <path>]... plugin list [--json]
+ai-dev [--plugin-path <path>]... plugin show <plugin-id> [--json] [--handshake]
+ai-dev [--plugin-path <path>]... plugin validate [<plugin-id>] [--json]
+ai-dev [--plugin-path <path>]... plugin status [--json]
+ai-dev [--plugin-path <path>]... plugin refresh [--json]
+ai-dev [--plugin-path <path>]... plugin run <plugin-id> <operation> [--capability <name>] [--input <path>] [--json]
 ai-dev env [--shell sh]
 ai-dev validate [--strict] [--json]
 ai-dev secret resolve <reference>
@@ -85,6 +91,7 @@ ai-dev version
 - `profile` — inspect available, active, and resolved profile overlays.
 - `machine` — inspect machine identity normalization and overlay path.
 - `context` — print runtime context, active profiles, and merge order.
+- `plugin` — discover, validate, inspect, and invoke external plugins.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -137,6 +144,16 @@ project = "prompts/project.md"
 
 [rules]
 enabled = ["safe-shell"]
+
+[plugins]
+paths = ["~/custom/ai-dev/plugins"]
+
+[plugins.onepassword]
+enabled = true
+timeout_seconds = 10
+
+[plugins.onepassword.config]
+account = "my.1password.com"
 ```
 
 Validate the current global file, project overlay, and merged result:
@@ -183,6 +200,10 @@ search and resolve behavior, deterministic ordering, and rollback guidance.
 See [`docs/checkpoints/09-profiles-machine-overlays.md`](docs/checkpoints/09-profiles-machine-overlays.md)
 for profile and machine overlay precedence, runtime override flags, source
 provenance commands, and compatibility guidance.
+
+See [`docs/checkpoints/10-plugin-architecture.md`](docs/checkpoints/10-plugin-architecture.md)
+for plugin manifest schema, discovery precedence, protocol lifecycle,
+capability integrations, diagnostics, and rollback guidance.
 
 ## Environment activation
 

@@ -349,11 +349,68 @@ func resolveRegistryIndexForCurrentProject(paths Paths, kind string) (registryIn
 func registryIndexFromModel(paths Paths, model ClientSourceModel, kind string) (registryIndex, error) {
 	registryPath := resolveRegistryPath(paths, model.Info, model.Resolved, kind)
 	index := discoverRegistry(kind, registryPath)
+	index = mergePluginRegistryResources(paths, kind, index)
+	if len(index.Resources) > 0 {
+		filtered := make([]registryDiagnostic, 0, len(index.Diagnostics))
+		for _, finding := range index.Diagnostics {
+			if finding.Code == registryCodeRegistryMissing {
+				continue
+			}
+			filtered = append(filtered, finding)
+		}
+		index.Diagnostics = filtered
+	}
 	if registryHasErrors(index.Diagnostics) {
 		first := firstRegistryError(index.Diagnostics)
 		return registryIndex{}, registryError{Code: first.Code, Message: first.Message}
 	}
 	return index, nil
+}
+
+func mergePluginRegistryResources(paths Paths, kind string, index registryIndex) registryIndex {
+	resources, pluginFindings := pluginProvidedRegistryResources(paths, kind)
+	for _, finding := range pluginFindings {
+		severity := "error"
+		if finding.Severity == "warning" {
+			severity = "warning"
+		}
+		index.Diagnostics = append(index.Diagnostics, registryDiagnostic{
+			Severity: severity,
+			Code:     finding.Code,
+			Kind:     kind,
+			Path:     finding.Path,
+			Message:  finding.Message,
+		})
+	}
+
+	for _, resource := range resources {
+		if err := validateRegistryIdentifier(resource.Identifier); err != nil {
+			index.Diagnostics = append(index.Diagnostics, registryDiagnostic{
+				Severity:   "error",
+				Code:       registryInvalidIDCode(kind),
+				Kind:       kind,
+				Identifier: resource.Identifier,
+				Path:       resource.Source,
+				Message:    "invalid registry identifier",
+			})
+			continue
+		}
+		if _, exists := index.Resources[resource.Identifier]; exists {
+			index.Diagnostics = append(index.Diagnostics, registryDiagnostic{
+				Severity:   "error",
+				Code:       registryDuplicateCode(kind),
+				Kind:       kind,
+				Identifier: resource.Identifier,
+				Path:       resource.Source,
+				Message:    "duplicate registry identifier",
+			})
+			continue
+		}
+		index.Resources[resource.Identifier] = resource
+	}
+
+	sortRegistryDiagnostics(index.Diagnostics)
+	return index
 }
 
 func resolveRegistryPath(paths Paths, info ProjectInfo, configuration map[string]any, kind string) string {
@@ -891,6 +948,7 @@ func validatePromptAndRuleRegistries(paths Paths, info ProjectInfo, resolved map
 	for _, kind := range []string{registryKindPrompt, registryKindRule} {
 		registryPath := resolveRegistryPath(paths, info, resolved, kind)
 		index := discoverRegistry(kind, registryPath)
+		index = mergePluginRegistryResources(paths, kind, index)
 		enabled, _ := collectEnabledRegistryIdentifiers(kind, sources, resolved)
 		requireRegistry := len(enabled) > 0
 		for _, diagnostic := range index.Diagnostics {
@@ -937,6 +995,7 @@ func registryDoctorLines(paths Paths, info ProjectInfo, resolved map[string]any,
 	for _, kind := range []string{registryKindPrompt, registryKindRule} {
 		registryPath := resolveRegistryPath(paths, info, resolved, kind)
 		index := discoverRegistry(kind, registryPath)
+		index = mergePluginRegistryResources(paths, kind, index)
 		enabled, _ := collectEnabledRegistryIdentifiers(kind, sources, resolved)
 		requireRegistry := len(enabled) > 0
 		missing := 0

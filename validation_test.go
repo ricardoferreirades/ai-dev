@@ -252,6 +252,11 @@ func TestSchemaV1KnownFieldTypes(t *testing.T) {
 			configuration: map[string]any{"schema": "v1", "rules": "bad"},
 			expectedPath:  "rules",
 		},
+		{
+			name:          "plugins",
+			configuration: map[string]any{"schema": "v1", "plugins": "bad"},
+			expectedPath:  "plugins",
+		},
 	}
 
 	for _, test := range tests {

@@ -897,7 +897,7 @@ func clientGenerateCommand(paths Paths, arguments []string) error {
 
 	workingModel := cloneClientSourceModel(model)
 	if options.ResolveSecrets {
-		resolver := newSecretResolver(loadSecretCommandDefinitions(workingModel.Resolved))
+		resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(workingModel.Resolved))
 		if err := resolveMCPServerSecrets(context.Background(), workingModel.Servers, resolver); err != nil {
 			return clientError{Code: clientCodeClientSecretResolutionFail, Message: "client secret resolution failed"}
 		}

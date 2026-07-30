@@ -1,39 +1,41 @@
-# Current Task: Checkpoint 9
+# Current Task: Checkpoint 10
 
 ## Objective
 
-Implement profile and machine overlay resolution with deterministic
-precedence, runtime override flags, provenance introspection commands,
-and backward compatibility for existing configuration usage.
+Implement a controlled plugin architecture for `ai-dev` with external
+process execution, manifest-driven discovery, versioned NDJSON protocol,
+capability registration, validation, diagnostics, and command surfaces.
 
 ## Scope
 
-- Add runtime options parsing before command dispatch:
-  - `--machine <identifier>`
-  - `--profile <identifier>` (repeatable)
-  - `--profile-only <identifier>` (repeatable)
-- Introduce centralized context resolver for:
-  - source layering
-  - profile activation and de-duplication
-  - machine normalization and overlay selection
-  - source provenance metadata
-- Add command surfaces:
-  - `profile list/show/active/resolve`
-  - `machine show`
-  - `context`
-  - `config sources`
-  - `config origin <field.path>`
-- Update doctor diagnostics with profile/machine checks.
-- Preserve compatibility for legacy singular `profile` key.
+- Add plugin discovery and manifest validation from ordered search paths.
+- Add plugin command surface:
+  - `plugin list`
+  - `plugin show`
+  - `plugin validate`
+  - `plugin status`
+  - `plugin refresh`
+  - `plugin run`
+- Add handshake and runtime capability discovery protocol (`ai-dev-plugin-v1`).
+- Enforce process controls:
+  - finite timeout
+  - bounded stdout/stderr
+  - bounded message count and size
+  - direct executable invocation (no shell wrapper)
+  - minimal default plugin environment
+- Integrate plugin capability surfaces:
+  - secret-provider registration for `secret://<provider>/...`
+  - prompt-provider and rule-provider registry resources
+  - validator findings in core validation output
+- Add plugin provenance in `config sources` and plugin checks in `doctor`.
 
 ## Required behavior
 
-- Deterministic merge/source ordering across global, profile, machine,
-  CLI profile, and project overlays.
-- Stable error codes for invalid identifiers, missing profile references,
-  invalid profile/machine overlays, and missing origin paths.
-- Redaction of sensitive values in provenance/origin outputs.
-- Non-profile workflows continue to function unchanged.
+- Invalid, incompatible, or conflicting plugins are visible but fail closed.
+- Plugin identifier, manifest schema, protocol, executable, and capability
+  checks emit stable diagnostics.
+- Discovery is deterministic by search path then filesystem ordering.
+- Existing non-plugin workflows remain compatible.
 
 ## Verification
 
