@@ -211,6 +211,7 @@ func validateSchemaV1Fields(
 		"profiles":    true,
 		"machine":     true,
 		"plugins":     true,
+		"bundles":     true,
 		"environment": true,
 		"mcp":         true,
 		"prompts":     true,
@@ -251,6 +252,7 @@ func validateSchemaV1Fields(
 	}
 	findings = append(findings, validateMachineField(source, configuration["machine"])...)
 	findings = append(findings, validatePluginsField(source, configuration["plugins"])...)
+	findings = append(findings, validateBundlesField(source, configuration["bundles"])...)
 
 	findings = append(findings, validateEnvironmentField(source, configuration["environment"])...)
 	findings = append(findings, validateMCPField(source, configuration["mcp"])...)
@@ -259,6 +261,121 @@ func validateSchemaV1Fields(
 	findings = append(findings, validateSecretsField(source, configuration["secrets"])...)
 	findings = append(findings, validateClientsField(source, configuration["clients"])...)
 
+	return findings
+}
+
+func validateBundlesField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+	bundles, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "bundles",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "bundles must be a table",
+		}}
+	}
+	findings := []ValidationFinding{}
+	for _, key := range mapKeys(bundles) {
+		if key != "security" {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "bundles." + key,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown field in bundles table",
+			})
+		}
+	}
+	securityValue, exists := bundles["security"]
+	if !exists {
+		return findings
+	}
+	security, ok := securityValue.(map[string]any)
+	if !ok {
+		findings = append(findings, ValidationFinding{
+			Source:   source,
+			Path:     "bundles.security",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "bundles.security must be a table",
+		})
+		return findings
+	}
+	allowed := map[string]bool{"import_policy": true, "required_signers": true}
+	for _, key := range mapKeys(security) {
+		if !allowed[key] {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "bundles.security." + key,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown field in bundles.security",
+			})
+		}
+	}
+	if modeValue, exists := security["import_policy"]; exists {
+		mode, ok := modeValue.(string)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "bundles.security.import_policy",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "import_policy must be a string",
+			})
+		} else {
+			switch mode {
+			case "allow-unsigned", "require-signed", "require-trusted", "require-specific-signers":
+			default:
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "bundles.security.import_policy",
+					Code:     validationCodeInvalidValue,
+					Severity: "error",
+					Message:  "unknown bundle security import_policy",
+				})
+			}
+		}
+	}
+	if signersValue, exists := security["required_signers"]; exists {
+		signers, ok := signersValue.([]any)
+		if !ok {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "bundles.security.required_signers",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "required_signers must be an array of key identifiers",
+			})
+		} else {
+			for index, signer := range signers {
+				signerID, ok := signer.(string)
+				if !ok {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     fmt.Sprintf("bundles.security.required_signers[%d]", index),
+						Code:     validationCodeInvalidType,
+						Severity: "error",
+						Message:  "required signer must be a string",
+					})
+					continue
+				}
+				if err := validateKeyIdentifier(signerID); err != nil {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     fmt.Sprintf("bundles.security.required_signers[%d]", index),
+						Code:     securityCodeInvalidKeyIdentifier,
+						Severity: "error",
+						Message:  err.Error(),
+					})
+				}
+			}
+		}
+	}
 	return findings
 }
 

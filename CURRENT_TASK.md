@@ -1,31 +1,36 @@
-# Current Task: Checkpoint 11
+# Current Task: Checkpoint 12
 
 ## Objective
 
-Implement deterministic configuration bundle export/import/verification
-and local synchronization workflows for `ai-dev`.
+Implement local key management, trust policy enforcement, and secure
+bundle signing/encryption workflows for `ai-dev`.
 
 ## Scope
 
-- Add portable bundle schema `bundle-v1` using `.aidev` archives.
-- Add manifest metadata and per-resource checksums.
-- Add commands:
-  - `export`
-  - `import`
-  - `bundle verify/show/list/metadata/diff`
-  - `sync preview` and `sync`
-- Add conflict policy handling:
-  - `--overwrite`
-  - `--skip-existing`
-  - `--fail-on-conflict`
-- Add atomic import application and rollback behavior.
-- Add dry-run import planning with create/update/conflict/skip reporting.
-- Integrate bundle validation through `validate --bundle`.
-- Add doctor bundle capability and last-status reporting.
-- Preserve security constraints:
-  - no resolved secrets in bundles
-  - no plugin executables bundled
-  - machine overlays opt-in
+- Add local key registry under `~/.config/ai-dev/keys` with:
+  - signing keys (`ed25519`)
+  - recipient encryption keys (`x25519-aes256gcm-v1`)
+  - encrypted private-key storage and restrictive permissions
+- Add key lifecycle commands:
+  - `key generate/import/export/list/show/remove`
+- Add explicit trust registry and scope-aware trust commands:
+  - `trust set/show/list`
+- Extend bundle commands for security operations:
+  - `export --sign <key-id>`
+  - `export --encrypt-for <key-id>` (repeatable)
+  - `bundle sign`
+  - `bundle verify-signature`
+  - `bundle signatures`
+  - `bundle recipients`
+  - `bundle decrypt`
+  - `bundle reencrypt`
+- Add security envelope support:
+  - `security-v1`
+  - signature verification separate from trust evaluation
+  - encrypted payload + recipient metadata handling
+- Enforce import trust policy with configuration and CLI overrides.
+- Integrate key/trust checks into validation and doctor diagnostics.
+- Preserve compatibility with unsigned, unencrypted `bundle-v1` artifacts.
 
 ## Verification
 

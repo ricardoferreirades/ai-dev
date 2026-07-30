@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.11.0"
+const version = "0.12.0"
 
 type Paths struct {
 	ConfigHome string
@@ -166,6 +166,16 @@ func main() {
 			die(err)
 		}
 
+	case "key":
+		if err := keyCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "trust":
+		if err := trustCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
 	case "sync":
 		if err := syncCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
@@ -236,15 +246,30 @@ func usage() {
 	ai-dev profile resolve [--with-project] [--json]
 	ai-dev machine show [--json]
 	ai-dev context [--json]
-	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins]
-	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--json]
-	ai-dev bundle verify <bundle>
-	ai-dev bundle show <bundle> [--json]
+	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]...
+	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
+	ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json]
+	ai-dev bundle show <bundle> [--json] [--decrypt] [--key <key-id>]
 	ai-dev bundle list [directory] [--json]
 	ai-dev bundle metadata <bundle> [--json]
 	ai-dev bundle diff <bundle> [--json]
+	ai-dev bundle sign <bundle> --key <key-id> [--output <path>]
+	ai-dev bundle verify-signature <bundle> [--json]
+	ai-dev bundle signatures <bundle> [--json]
+	ai-dev bundle recipients <bundle> [--json]
+	ai-dev bundle decrypt <bundle> [--output <path>] [--key <key-id>] [--json]
+	ai-dev bundle reencrypt <bundle> [--add-recipient <key-id>]... [--remove-recipient <key-id>]... [--output <path>] [--key <key-id>]
 	ai-dev sync preview <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
 	ai-dev sync <bundle> [--overwrite | --skip-existing | --fail-on-conflict] [--json]
+	ai-dev key generate --purpose <signing|encryption> --id <key-id> [--passphrase-ref <secret://...>]
+	ai-dev key import <path> [--purpose <signing|encryption>] [--private] [--id <key-id>]
+	ai-dev key export <key-id> [--private --yes] [--json]
+	ai-dev key list [--json]
+	ai-dev key show <key-id> [--json]
+	ai-dev key remove <key-id> (--public | --private) [--yes]
+	ai-dev trust set <key-id> <trusted|untrusted|revoked|unknown> [--scope global|project]
+	ai-dev trust show <key-id> [--json]
+	ai-dev trust list [--scope global|project|effective] [--json]
 	ai-dev plugin list [--json]
 	ai-dev plugin show <plugin-id> [--json] [--handshake]
 	ai-dev plugin validate [<plugin-id>] [--json]
@@ -275,6 +300,8 @@ Commands:
 	export       Create a portable configuration bundle
 	import       Validate and import a configuration bundle
 	bundle       Verify, inspect, and diff configuration bundles
+	key          Manage signing and encryption keys
+	trust        Manage signer trust state for bundle policy
 	sync         Preview or apply local bundle synchronization
 	plugin       Discover, validate, and invoke external ai-dev plugins
   config-path  Print the expected project configuration path
@@ -929,6 +956,13 @@ func doctor(paths Paths) error {
 						}
 					}
 
+					for _, line := range keyRegistryDoctorLines(paths) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newProjectSecretResolver(paths, loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -974,7 +1008,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 11 is available.")
+	fmt.Println("Everything required for Checkpoint 12 is available.")
 	return nil
 }
 

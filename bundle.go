@@ -73,8 +73,10 @@ type bundleResource struct {
 }
 
 type bundleArchive struct {
-	Manifest  bundleManifest
-	Resources map[string][]byte
+	Manifest         bundleManifest
+	Resources        map[string][]byte
+	Security         *bundleSecurityEnvelope
+	EncryptedPayload []byte
 }
 
 type bundleExportOptions struct {
@@ -88,12 +90,20 @@ type bundleExportOptions struct {
 	SelectRules    bool
 	SelectConfig   bool
 	SelectPlugins  bool
+	SignKeyID      string
+	EncryptFor     []string
+	KeyUnlock      keyUnlockOptions
 }
 
 type bundleImportOptions struct {
 	DryRun         bool
 	ConflictPolicy string
 	JSONOutput     bool
+	RequireSigned  bool
+	RequireTrusted bool
+	RequireSigners []string
+	DecryptKeyID   string
+	KeyUnlock      keyUnlockOptions
 }
 
 type bundleImportAction struct {
@@ -150,6 +160,30 @@ func exportCommand(paths Paths, arguments []string) error {
 			options.SelectConfig = true
 		case "--plugins":
 			options.SelectPlugins = true
+		case "--sign":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--sign requires a key identifier"}
+			}
+			index++
+			options.SignKeyID = arguments[index]
+		case "--encrypt-for":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--encrypt-for requires a key identifier"}
+			}
+			index++
+			options.EncryptFor = append(options.EncryptFor, arguments[index])
+		case "--key-passphrase":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key-passphrase requires a value"}
+			}
+			index++
+			options.KeyUnlock.PassphraseLiteral = arguments[index]
+		case "--key-passphrase-ref":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key-passphrase-ref requires a value"}
+			}
+			index++
+			options.KeyUnlock.PassphraseRef = arguments[index]
 		default:
 			return UsageError{Message: fmt.Sprintf("unknown export option: %s", argument)}
 		}
@@ -162,6 +196,17 @@ func exportCommand(paths Paths, arguments []string) error {
 	archive, err := buildBundleArchive(paths, options)
 	if err != nil {
 		return err
+	}
+	if len(options.EncryptFor) > 0 {
+		archive, err = encryptArchiveForRecipients(paths, archive, options.EncryptFor)
+		if err != nil {
+			return err
+		}
+	}
+	if options.SignKeyID != "" {
+		if err := signBundleArchive(paths, &archive, options.SignKeyID, options.KeyUnlock); err != nil {
+			return err
+		}
 	}
 	if err := writeBundleArchive(options.Output, archive); err != nil {
 		return err
@@ -199,8 +244,43 @@ func importCommand(paths Paths, arguments []string) error {
 			policySet++
 		case "--json":
 			options.JSONOutput = true
+		case "--require-signed":
+			options.RequireSigned = true
+		case "--require-trusted":
+			options.RequireTrusted = true
+		case "--require-signer", "--key", "--key-passphrase", "--key-passphrase-ref":
+			// Parsed with values in the second pass.
 		default:
 			return UsageError{Message: fmt.Sprintf("unknown import option: %s", argument)}
+		}
+	}
+	for index := 1; index < len(arguments); index++ {
+		argument := arguments[index]
+		switch argument {
+		case "--require-signer":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--require-signer requires a value"}
+			}
+			index++
+			options.RequireSigners = append(options.RequireSigners, arguments[index])
+		case "--key":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key requires a value"}
+			}
+			index++
+			options.DecryptKeyID = arguments[index]
+		case "--key-passphrase":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key-passphrase requires a value"}
+			}
+			index++
+			options.KeyUnlock.PassphraseLiteral = arguments[index]
+		case "--key-passphrase-ref":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key-passphrase-ref requires a value"}
+			}
+			index++
+			options.KeyUnlock.PassphraseRef = arguments[index]
 		}
 	}
 	if policySet > 1 {
@@ -215,6 +295,44 @@ func importCommand(paths Paths, arguments []string) error {
 	if err := verifyBundleArchive(archive); err != nil {
 		_ = writeBundleLastStatus(paths, false, err.Error())
 		return err
+	}
+
+	configuredPolicy, err := loadConfiguredImportPolicy(paths)
+	if err != nil {
+		_ = writeBundleLastStatus(paths, false, err.Error())
+		return err
+	}
+	requestedPolicy := importTrustPolicy{RequiredSigners: options.RequireSigners}
+	if options.RequireTrusted {
+		requestedPolicy.Mode = "require-trusted"
+	} else if options.RequireSigned {
+		requestedPolicy.Mode = "require-signed"
+	}
+	if len(options.RequireSigners) > 0 {
+		requestedPolicy.Mode = "require-specific-signers"
+	}
+	effectivePolicy, err := mergeImportPolicy(configuredPolicy, requestedPolicy)
+	if err != nil {
+		_ = writeBundleLastStatus(paths, false, err.Error())
+		return err
+	}
+	securityVerification, err := evaluateImportPolicy(paths, archive, effectivePolicy)
+	if err != nil {
+		_ = writeBundleLastStatus(paths, false, err.Error())
+		return err
+	}
+
+	if archive.Security != nil && archive.Security.Encrypted {
+		decryptedArchive, _, decryptErr := decryptArchive(paths, archive, options.DecryptKeyID, options.KeyUnlock)
+		if decryptErr != nil {
+			_ = writeBundleLastStatus(paths, false, decryptErr.Error())
+			return decryptErr
+		}
+		archive = decryptedArchive
+		if err := verifyBundleArchive(archive); err != nil {
+			_ = writeBundleLastStatus(paths, false, err.Error())
+			return err
+		}
 	}
 
 	report, operations, err := planBundleImport(paths, archive, options)
@@ -257,6 +375,7 @@ func importCommand(paths Paths, arguments []string) error {
 	if err := writeBundleProvenance(paths, archive.Manifest, operations); err != nil {
 		return err
 	}
+	_ = writeBundleSecurityProvenance(paths, archive, securityVerification)
 	return nil
 }
 
@@ -268,13 +387,25 @@ func bundleCommand(paths Paths, arguments []string) error {
 	case "verify":
 		return bundleVerifyCommand(paths, arguments[1:])
 	case "show":
-		return bundleShowCommand(arguments[1:])
+		return bundleShowCommand(paths, arguments[1:])
 	case "list":
 		return bundleListCommand(arguments[1:])
 	case "metadata":
 		return bundleMetadataCommand(arguments[1:])
 	case "diff":
 		return bundleDiffCommand(paths, arguments[1:])
+	case "sign":
+		return bundleSignCommand(paths, arguments[1:])
+	case "verify-signature":
+		return bundleVerifySignatureCommand(paths, arguments[1:])
+	case "signatures":
+		return bundleSignaturesCommand(paths, arguments[1:])
+	case "recipients":
+		return bundleRecipientsCommand(arguments[1:])
+	case "decrypt":
+		return bundleDecryptCommand(paths, arguments[1:])
+	case "reencrypt":
+		return bundleReencryptCommand(paths, arguments[1:])
 	default:
 		return UsageError{Message: fmt.Sprintf("unknown bundle subcommand: %s", arguments[0])}
 	}
@@ -305,6 +436,25 @@ func bundleVerifyCommand(paths Paths, arguments []string) error {
 	if len(arguments) == 0 {
 		return UsageError{Message: "bundle verify requires a bundle path"}
 	}
+	requireTrusted := false
+	requiredSigners := []string{}
+	jsonOutput := false
+	for index := 1; index < len(arguments); index++ {
+		switch arguments[index] {
+		case "--require-trusted-signature":
+			requireTrusted = true
+		case "--require-signer":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--require-signer requires a value"}
+			}
+			index++
+			requiredSigners = append(requiredSigners, arguments[index])
+		case "--json":
+			jsonOutput = true
+		default:
+			return UsageError{Message: fmt.Sprintf("unknown bundle verify option: %s", arguments[index])}
+		}
+	}
 	archive, err := readBundleArchive(arguments[0])
 	if err != nil {
 		_ = writeBundleLastStatus(paths, false, err.Error())
@@ -314,24 +464,78 @@ func bundleVerifyCommand(paths Paths, arguments []string) error {
 		_ = writeBundleLastStatus(paths, false, err.Error())
 		return err
 	}
+	securityVerification, err := verifyBundleSecurity(paths, archive)
+	if err != nil {
+		_ = writeBundleLastStatus(paths, false, err.Error())
+		return err
+	}
+	if err := enforceVerifyRequirements(securityVerification, requireTrusted, requiredSigners); err != nil {
+		_ = writeBundleLastStatus(paths, false, err.Error())
+		return err
+	}
 	if err := writeBundleLastStatus(paths, true, "verify succeeded"); err != nil {
 		return err
 	}
-	fmt.Printf("valid=true schema=%s resources=%d\n", archive.Manifest.Schema, len(archive.Manifest.Resources))
+	if jsonOutput {
+		content, marshalErr := json.MarshalIndent(map[string]any{
+			"valid":            true,
+			"schema":           archive.Manifest.Schema,
+			"resources":        len(archive.Manifest.Resources),
+			"security":         securityVerification,
+			"require_trusted":  requireTrusted,
+			"required_signers": requiredSigners,
+		}, "", "  ")
+		if marshalErr != nil {
+			return fmt.Errorf("encode bundle verify output: %w", marshalErr)
+		}
+		fmt.Println(string(content))
+		return nil
+	}
+	fmt.Printf("valid=true schema=%s resources=%d signed=%t encrypted=%t\n", archive.Manifest.Schema, len(archive.Manifest.Resources), securityVerification.Signed, securityVerification.Encrypted)
 	return nil
 }
 
-func bundleShowCommand(arguments []string) error {
+func bundleShowCommand(paths Paths, arguments []string) error {
 	if len(arguments) == 0 {
 		return UsageError{Message: "bundle show requires a bundle path"}
 	}
 	jsonOutput := false
+	decrypt := false
+	decryptKeyID := ""
+	unlock := keyUnlockOptions{}
 	for _, argument := range arguments[1:] {
 		switch argument {
 		case "--json":
 			jsonOutput = true
+		case "--decrypt":
+			decrypt = true
+		case "--key", "--passphrase", "--passphrase-ref":
+			// Parsed with values in the second pass.
 		default:
 			return UsageError{Message: fmt.Sprintf("unknown bundle show option: %s", argument)}
+		}
+	}
+	for index := 1; index < len(arguments); index++ {
+		argument := arguments[index]
+		switch argument {
+		case "--key":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--key requires a value"}
+			}
+			index++
+			decryptKeyID = arguments[index]
+		case "--passphrase":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--passphrase requires a value"}
+			}
+			index++
+			unlock.PassphraseLiteral = arguments[index]
+		case "--passphrase-ref":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--passphrase-ref requires a value"}
+			}
+			index++
+			unlock.PassphraseRef = arguments[index]
 		}
 	}
 	archive, err := readBundleArchive(arguments[0])
@@ -340,6 +544,31 @@ func bundleShowCommand(arguments []string) error {
 	}
 	if err := verifyBundleArchive(archive); err != nil {
 		return err
+	}
+	securityVerification, err := verifyBundleSecurity(paths, archive)
+	if err != nil {
+		return err
+	}
+	if archive.Security != nil && archive.Security.Encrypted && decrypt {
+		decrypted, _, decryptErr := decryptArchive(paths, archive, decryptKeyID, unlock)
+		if decryptErr != nil {
+			return decryptErr
+		}
+		archive = decrypted
+	}
+	if archive.Security != nil && archive.Security.Encrypted && !decrypt {
+		payload := map[string]any{
+			"encrypted":              true,
+			"envelope_version":       archive.Security.Version,
+			"recipient_fingerprints": securityVerification.RecipientFingerprints,
+			"signatures":             securityVerification.Signatures,
+		}
+		content, marshalErr := json.MarshalIndent(payload, "", "  ")
+		if marshalErr != nil {
+			return fmt.Errorf("encode encrypted bundle show output: %w", marshalErr)
+		}
+		fmt.Println(string(content))
+		return nil
 	}
 	counts := map[string]int{}
 	for _, resource := range archive.Manifest.Resources {
@@ -379,6 +608,15 @@ func bundleMetadataCommand(arguments []string) error {
 	if err != nil {
 		return err
 	}
+	security := map[string]any{"enabled": false}
+	if archive.Security != nil {
+		security = map[string]any{
+			"enabled":         true,
+			"version":         archive.Security.Version,
+			"encrypted":       archive.Security.Encrypted,
+			"signature_count": len(archive.Security.Signatures),
+		}
+	}
 	metadata := map[string]any{
 		"schema":             archive.Manifest.Schema,
 		"bundle_version":     archive.Manifest.BundleVersion,
@@ -386,6 +624,7 @@ func bundleMetadataCommand(arguments []string) error {
 		"creator_version":    archive.Manifest.CreatorVersion,
 		"origin_platform":    archive.Manifest.OriginPlatform,
 		"project_identifier": archive.Manifest.ProjectIdentifier,
+		"security":           security,
 	}
 	content, err := json.MarshalIndent(metadata, "", "  ")
 	if err != nil {
@@ -459,6 +698,9 @@ func bundleDiffCommand(paths Paths, arguments []string) error {
 	archive, err := readBundleArchive(arguments[0])
 	if err != nil {
 		return err
+	}
+	if archive.Security != nil && archive.Security.Encrypted {
+		return securityError{Code: securityCodeEncryptedBundleNeedsDecrypt, Message: "bundle diff requires decrypted bundle content"}
 	}
 	if err := verifyBundleArchive(archive); err != nil {
 		return err
@@ -689,26 +931,53 @@ func writeBundleArchive(path string, archive bundleArchive) error {
 	}()
 
 	writer := zip.NewWriter(tempFile)
-	manifestBytes, err := json.MarshalIndent(archive.Manifest, "", "  ")
-	if err != nil {
-		_ = tempFile.Close()
-		return bundleError{Code: bundleCodeExportFailed, Message: fmt.Sprintf("encode bundle manifest: %v", err)}
-	}
-
-	if err := writeZipEntry(writer, "manifest.json", manifestBytes); err != nil {
-		_ = writer.Close()
-		_ = tempFile.Close()
-		return err
-	}
-
-	resourcePaths := bundleResourceKeys(archive.Resources)
-	sort.Strings(resourcePaths)
-	for _, resourcePath := range resourcePaths {
-		entryPath := filepath.ToSlash(filepath.Join("resources", resourcePath))
-		if err := writeZipEntry(writer, entryPath, archive.Resources[resourcePath]); err != nil {
+	if archive.Security != nil {
+		securityBytes, err := serializeSecurityEnvelope(archive.Security)
+		if err != nil {
+			_ = writer.Close()
+			_ = tempFile.Close()
+			return bundleError{Code: bundleCodeExportFailed, Message: fmt.Sprintf("encode bundle security envelope: %v", err)}
+		}
+		if err := writeZipEntry(writer, "security.json", securityBytes); err != nil {
 			_ = writer.Close()
 			_ = tempFile.Close()
 			return err
+		}
+	}
+
+	if archive.Security != nil && archive.Security.Encrypted {
+		if len(archive.EncryptedPayload) == 0 {
+			_ = writer.Close()
+			_ = tempFile.Close()
+			return bundleError{Code: bundleCodeExportFailed, Message: "encrypted bundle payload is missing"}
+		}
+		if err := writeZipEntry(writer, "encrypted/payload.bin", archive.EncryptedPayload); err != nil {
+			_ = writer.Close()
+			_ = tempFile.Close()
+			return err
+		}
+	} else {
+		manifestBytes, err := json.MarshalIndent(archive.Manifest, "", "  ")
+		if err != nil {
+			_ = tempFile.Close()
+			return bundleError{Code: bundleCodeExportFailed, Message: fmt.Sprintf("encode bundle manifest: %v", err)}
+		}
+
+		if err := writeZipEntry(writer, "manifest.json", manifestBytes); err != nil {
+			_ = writer.Close()
+			_ = tempFile.Close()
+			return err
+		}
+
+		resourcePaths := bundleResourceKeys(archive.Resources)
+		sort.Strings(resourcePaths)
+		for _, resourcePath := range resourcePaths {
+			entryPath := filepath.ToSlash(filepath.Join("resources", resourcePath))
+			if err := writeZipEntry(writer, entryPath, archive.Resources[resourcePath]); err != nil {
+				_ = writer.Close()
+				_ = tempFile.Close()
+				return err
+			}
 		}
 	}
 
@@ -762,10 +1031,28 @@ func readBundleArchive(path string) (bundleArchive, error) {
 			}
 			continue
 		}
+		if file.Name == "security.json" {
+			envelope, err := parseSecurityEnvelope(content)
+			if err != nil {
+				return bundleArchive{}, err
+			}
+			archive.Security = envelope
+			continue
+		}
+		if file.Name == "encrypted/payload.bin" {
+			archive.EncryptedPayload = content
+			continue
+		}
 		if strings.HasPrefix(file.Name, "resources/") {
 			resourcePath := strings.TrimPrefix(file.Name, "resources/")
 			archive.Resources[resourcePath] = content
 		}
+	}
+	if archive.Security != nil && archive.Security.Encrypted {
+		if len(archive.EncryptedPayload) == 0 {
+			return bundleArchive{}, bundleError{Code: bundleCodeInvalid, Message: "encrypted bundle payload is missing"}
+		}
+		return archive, nil
 	}
 	if archive.Manifest.Schema == "" {
 		return bundleArchive{}, bundleError{Code: bundleCodeManifestInvalid, Message: "bundle manifest is missing"}
@@ -789,6 +1076,27 @@ func readZipFile(file *zip.File) ([]byte, error) {
 }
 
 func verifyBundleArchive(archive bundleArchive) error {
+	if archive.Security != nil {
+		if archive.Security.Version != securityEnvelopeV1 {
+			return securityError{Code: securityCodeUnsupportedSecurityEnvelope, Message: fmt.Sprintf("unsupported security envelope version %q", archive.Security.Version)}
+		}
+		if archive.Security.Encrypted {
+			if archive.Security.Encryption == nil {
+				return securityError{Code: securityCodeInvalidSecurityEnvelope, Message: "encrypted bundle is missing encryption metadata"}
+			}
+			if archive.Security.Encryption.Algorithm != encryptionAlgorithmX25519GCM {
+				return securityError{Code: securityCodeUnsupportedEncryptionAlgorithm, Message: fmt.Sprintf("unsupported encryption algorithm %q", archive.Security.Encryption.Algorithm)}
+			}
+			if len(archive.EncryptedPayload) == 0 {
+				return securityError{Code: securityCodeInvalidSecurityEnvelope, Message: "encrypted bundle payload is missing"}
+			}
+			if archive.Security.Encryption.PayloadDigest != checksumForContent(archive.EncryptedPayload) {
+				return securityError{Code: securityCodeInvalidSecurityEnvelope, Message: "encrypted bundle payload digest mismatch"}
+			}
+			return nil
+		}
+	}
+
 	manifest := archive.Manifest
 	if manifest.Schema != bundleSchemaV1 {
 		return bundleError{Code: bundleCodeUnsupportedSchema, Message: fmt.Sprintf("unsupported bundle schema %q", manifest.Schema)}
