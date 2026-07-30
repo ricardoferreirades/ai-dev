@@ -34,6 +34,10 @@ ai-dev env [--shell sh]
 ai-dev validate [--strict] [--json]
 ai-dev secret resolve <reference>
 ai-dev secret check [--json]
+ai-dev mcp list [--enabled] [--json]
+ai-dev mcp show <server-name> [--json]
+ai-dev mcp resolve [--include-disabled] [--resolve-secrets]
+ai-dev mcp check [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -48,6 +52,7 @@ ai-dev version
 - `validate` — validate the current global, project, and resolved
   configuration context.
 - `secret` — resolve and inspect secret references safely.
+- `mcp` — inspect, resolve, and validate the MCP server registry.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -76,8 +81,20 @@ profile = "default"
 [environment]
 EDITOR = "vim"
 
-[mcp]
-servers = ["filesystem"]
+[mcp.servers.github]
+transport = "stdio"
+command = "github-mcp-server"
+args = ["stdio"]
+
+[mcp.servers.github.environment]
+GITHUB_TOKEN = "secret://env/GITHUB_TOKEN"
+
+[mcp.servers.remote]
+transport = "http"
+url = "https://mcp.example.com"
+
+[mcp.servers.remote.headers]
+Authorization = "secret://env/MCP_AUTH_TOKEN"
 
 [prompts]
 default = "prompts/default.md"
@@ -115,6 +132,10 @@ Supported providers in this checkpoint:
 See [`docs/checkpoints/05-secrets.md`](docs/checkpoints/05-secrets.md)
 for syntax, command definitions, inspection commands, security
 guarantees, and rollback steps.
+
+See [`docs/checkpoints/06-mcp-registry.md`](docs/checkpoints/06-mcp-registry.md)
+for full MCP schema, merge behavior, validation rules, JSON contracts,
+and rollback guidance.
 
 ## Environment activation
 

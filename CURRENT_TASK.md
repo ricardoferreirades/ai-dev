@@ -1,82 +1,75 @@
-# Current Task: Checkpoint 5
+# Current Task: Checkpoint 6
 
 ## Objective
 
-Introduce secret references and a provider abstraction so `ai-dev` can
-resolve sensitive values at runtime without storing plaintext secrets in
-project or global TOML configuration.
+Introduce a centralized Model Context Protocol registry so `ai-dev` can
+define, validate, merge, list, inspect, and resolve MCP server
+configuration independently of client adapters.
 
-The checkpoint must not change project detection, configuration merge
-semantics, valid environment export, or direnv behavior.
+This checkpoint defines MCP configuration and readiness checks only. It
+must not launch, supervise, or communicate with MCP servers.
 
-## Secret model
+## MCP model
 
-Secret references use the syntax `secret://<provider>/<reference>` and
-are resolved at runtime only.
+Supported transports:
 
-Supported providers:
+- `stdio`
+- `http`
 
-- `env`
-- `command`
+Registry entries are defined as named tables under
+`[mcp.servers.<server-name>]` and merged using existing global/project
+overlay semantics.
 
-Command-backed secrets are defined under `[secrets.commands.<name>]`.
+Legacy syntax remains temporarily compatible with a deterministic
+interpretation:
 
-## Resolution flow
+```toml
+[mcp]
+servers = ["github", "postgres"]
+```
 
-Secret validation applies before environment export or inspection. The
-centralized secret resolver is reused by:
+## Commands
 
-- `ai-dev env [--shell sh]`
-- `ai-dev secret resolve <reference>`
-- `ai-dev secret check [--json]`
-- `ai-dev doctor`
-- future secret-aware consumers
+- `ai-dev mcp list [--enabled] [--json]`
+- `ai-dev mcp show <server-name> [--json]`
+- `ai-dev mcp resolve [--include-disabled] [--resolve-secrets]`
+- `ai-dev mcp check [--json]`
 
-Resolved values are cached only for the current process and never
-written to disk.
+## Safety and validation
+
+- Unknown MCP fields are rejected.
+- Secret values are never emitted by default inspection commands.
+- `--resolve-secrets` is opt-in and atomic.
+- `mcp check` validates readiness without network calls or server launch.
+- Doctor includes MCP summary diagnostics.
 
 ## Required stable codes
 
-- `invalid_secret_reference`
-- `unknown_secret_provider`
-- `missing_secret_value`
-- `empty_secret_value`
-- `missing_secret_command`
-- `secret_command_failed`
-- `secret_command_empty_output`
-- `invalid_secret_command`
-- `secret_resolution_failed`
+- `invalid_mcp_server_name`
+- `duplicate_mcp_server`
+- `unsupported_mcp_transport`
+- `missing_mcp_command`
+- `invalid_mcp_command`
+- `missing_mcp_url`
+- `invalid_mcp_url`
+- `conflicting_mcp_fields`
+- `invalid_mcp_args`
+- `invalid_mcp_environment`
+- `invalid_mcp_headers`
+- `invalid_mcp_timeout`
+- `mcp_command_not_found`
+- `mcp_working_directory_not_found`
+- `mcp_secret_resolution_failed`
+- `mcp_server_not_found`
 
 ## CLI exit status
 
 - `0`: success
-- `1`: validation or resolution failure
+- `1`: validation, lookup, or resolution failure
 - `2`: invalid command usage
 
-## Acceptance criteria
+## Verification
 
-- `secret://env/<name>` references are recognized.
-- Environment-provider references resolve when the variable exists.
-- Missing and empty environment variables fail safely.
-- `secret://command/<name>` references are recognized.
-- Command providers are validated and executed without a shell.
-- Nonzero command exit status and empty output fail safely.
-- Plaintext environment values continue to work.
-- `ai-dev env` resolves secret-backed environment values atomically.
-- `ai-dev secret resolve <reference>` prints only the resolved value.
-- `ai-dev secret check` and `--json` inspect without exposing values.
-- `ai-dev doctor` reports secret-provider status safely.
-- Duplicate references resolve only once per command execution.
-- No resolved values are written to disk.
-- Existing Checkpoint 1–4 commands remain compatible.
-- Automated tests use isolated fixtures only.
-- `go test ./...`, `go vet ./...`, and a static build pass.
-- Documentation covers usage, security, failure modes, and rollback.
-
-## Out of scope
-
-- Persistent secret caching
-- Additional secret providers
-- Secret creation or rotation
-- MCP execution or client generation
-- Prompt or rule file loading
+- `go test ./...`
+- `go vet ./...`
+- `CGO_ENABLED=0 go build -trimpath -o <temporary-binary> .`

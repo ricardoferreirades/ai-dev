@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.5.0"
+const version = "0.6.0"
 
 type Paths struct {
 	ConfigHome string
@@ -102,6 +102,11 @@ func main() {
 			die(err)
 		}
 
+	case "mcp":
+		if err := mcpCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -135,6 +140,10 @@ func usage() {
 	ai-dev validate [--strict] [--json]
   ai-dev secret resolve <reference>
   ai-dev secret check [--json]
+	ai-dev mcp list [--enabled] [--json]
+	ai-dev mcp show <server-name> [--json]
+	ai-dev mcp resolve [--include-disabled] [--resolve-secrets]
+	ai-dev mcp check [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -147,6 +156,7 @@ Commands:
   env          Print shell-safe environment exports
   validate     Validate source and resolved configuration
   secret       Resolve and inspect secret references
+	mcp          Inspect and validate resolved MCP registry
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -751,6 +761,24 @@ func doctor(paths Paths) error {
 					fmt.Printf("[error] secret resolution context: %v\n", err)
 					problems++
 				} else {
+					loadedSources, _, _ := loadConfigurationSources(paths, info)
+					mcpSummary := collectMCPDoctorSummary(resolved, loadedSources)
+					fmt.Printf(
+						"[ok] mcp summary: configured=%d enabled=%d invalid_definitions=%d unavailable_executables=%d invalid_working_directories=%d unresolved_secret_references=%d unsupported_transports=%d\n",
+						mcpSummary.ConfiguredServers,
+						mcpSummary.EnabledServers,
+						mcpSummary.InvalidDefinitions,
+						mcpSummary.UnavailableExecutables,
+						mcpSummary.InvalidWorkingDirectory,
+						mcpSummary.UnresolvedSecrets,
+						mcpSummary.UnsupportedTransports,
+					)
+					problems += mcpSummary.InvalidDefinitions
+					problems += mcpSummary.UnavailableExecutables
+					problems += mcpSummary.InvalidWorkingDirectory
+					problems += mcpSummary.UnresolvedSecrets
+					problems += mcpSummary.UnsupportedTransports
+
 					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -796,7 +824,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 4 is available.")
+	fmt.Println("Everything required for Checkpoint 6 is available.")
 	return nil
 }
 

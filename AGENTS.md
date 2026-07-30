@@ -101,9 +101,10 @@ Current version:
 
 ## Current task
 
-Checkpoint 5 is complete. Read `CURRENT_TASK.md` and
-`docs/checkpoints/05-secrets.md` before changing secret resolution or
-provider behavior.
+Checkpoint 6 is complete. Read `CURRENT_TASK.md`,
+`docs/checkpoints/05-secrets.md`, and
+`docs/checkpoints/06-mcp-registry.md` before changing MCP registry or
+secret-resolution behavior.
 
 ## Development rules
 

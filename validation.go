@@ -347,6 +347,7 @@ func validateMCPField(source string, value any) []ValidationFinding {
 	}
 
 	findings := []ValidationFinding{}
+	resolvedMode := source == resolvedValidationSource
 	allowed := map[string]bool{"servers": true}
 	for _, key := range mapKeys(mcp) {
 		if !allowed[key] {
@@ -361,8 +362,462 @@ func validateMCPField(source string, value any) []ValidationFinding {
 	}
 
 	if serversValue, exists := mcp["servers"]; exists {
-		if finding, ok := validateStringArrayField(source, "mcp.servers", serversValue); ok {
-			findings = append(findings, finding)
+		switch servers := serversValue.(type) {
+		case []any:
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "mcp.servers",
+				Code:     validationCodeDeprecatedField,
+				Severity: "warning",
+				Message:  "legacy mcp.servers array syntax is deprecated; use [mcp.servers.<name>] tables",
+			})
+
+			seen := map[string]bool{}
+			for _, item := range servers {
+				name, ok := item.(string)
+				if !ok {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers",
+						Code:     validationCodeInvalidType,
+						Severity: "error",
+						Message:  "legacy mcp.servers must be an array of strings",
+					})
+					break
+				}
+
+				if err := validateMCPServerName(name); err != nil {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers",
+						Code:     mcpCodeInvalidServerName,
+						Severity: "error",
+						Message:  "invalid MCP server name",
+					})
+				}
+
+				if seen[name] {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers",
+						Code:     mcpCodeDuplicateServer,
+						Severity: "error",
+						Message:  "duplicate MCP server name in legacy array",
+					})
+				}
+				seen[name] = true
+			}
+
+		case map[string]any:
+			for _, name := range mapKeys(servers) {
+				if err := validateMCPServerName(name); err != nil {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers." + name,
+						Code:     mcpCodeInvalidServerName,
+						Severity: "error",
+						Message:  "invalid MCP server name",
+					})
+					continue
+				}
+
+				definition, ok := servers[name].(map[string]any)
+				if !ok {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers." + name,
+						Code:     validationCodeInvalidType,
+						Severity: "error",
+						Message:  "MCP server definition must be a table",
+					})
+					continue
+				}
+
+				allowedServerFields := map[string]bool{
+					"transport":           true,
+					"command":             true,
+					"args":                true,
+					"cwd":                 true,
+					"environment":         true,
+					"enabled":             true,
+					"timeout_seconds":     true,
+					"url":                 true,
+					"headers":             true,
+					"inherit_environment": true,
+				}
+				for _, key := range mapKeys(definition) {
+					if !allowedServerFields[key] {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + "." + key,
+							Code:     validationCodeUnknownField,
+							Severity: "error",
+							Message:  "unknown MCP server field",
+						})
+					}
+				}
+
+				transportValue := ""
+				if transportRaw, exists := definition["transport"]; exists {
+					transportText, ok := transportRaw.(string)
+					if !ok || transportText == "" {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".transport",
+							Code:     mcpCodeUnsupportedTransport,
+							Severity: "error",
+							Message:  "transport must be stdio or http",
+						})
+						continue
+					}
+					transportValue = transportText
+				} else if resolvedMode {
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers." + name + ".transport",
+						Code:     mcpCodeUnsupportedTransport,
+						Severity: "error",
+						Message:  "transport must be stdio or http",
+					})
+					continue
+				}
+
+				if enabledValue, exists := definition["enabled"]; exists {
+					if _, ok := enabledValue.(bool); !ok {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".enabled",
+							Code:     validationCodeInvalidType,
+							Severity: "error",
+							Message:  "enabled must be a boolean",
+						})
+					}
+				}
+
+				if timeoutValue, exists := definition["timeout_seconds"]; exists {
+					timeout, ok := timeoutValue.(int64)
+					if !ok || timeout <= 0 {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".timeout_seconds",
+							Code:     mcpCodeInvalidTimeout,
+							Severity: "error",
+							Message:  "timeout_seconds must be a positive integer",
+						})
+					}
+				}
+
+				if inheritValue, exists := definition["inherit_environment"]; exists {
+					if _, ok := inheritValue.(bool); !ok {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".inherit_environment",
+							Code:     validationCodeInvalidType,
+							Severity: "error",
+							Message:  "inherit_environment must be a boolean",
+						})
+					}
+				}
+
+				switch transportValue {
+				case mcpTransportStdio:
+					if _, exists := definition["url"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".url",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "url is not allowed for stdio transport",
+						})
+					}
+					if _, exists := definition["headers"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".headers",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "headers is not allowed for stdio transport",
+						})
+					}
+
+					commandValue, exists := definition["command"]
+					if !exists && resolvedMode {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".command",
+							Code:     mcpCodeMissingCommand,
+							Severity: "error",
+							Message:  "stdio transport requires command",
+						})
+					} else if command, ok := commandValue.(string); !ok || strings.TrimSpace(command) == "" {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".command",
+							Code:     mcpCodeInvalidCommand,
+							Severity: "error",
+							Message:  "command must be a non-empty string",
+						})
+					}
+
+					if argsValue, exists := definition["args"]; exists {
+						if finding, ok := validateStringArrayField(
+							source,
+							"mcp.servers."+name+".args",
+							argsValue,
+						); ok {
+							finding.Code = mcpCodeInvalidArgs
+							findings = append(findings, finding)
+						}
+					}
+
+					if cwdValue, exists := definition["cwd"]; exists {
+						if _, ok := cwdValue.(string); !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".cwd",
+								Code:     validationCodeInvalidType,
+								Severity: "error",
+								Message:  "cwd must be a string",
+							})
+						}
+					}
+
+					if environmentValue, exists := definition["environment"]; exists {
+						environmentTable, ok := environmentValue.(map[string]any)
+						if !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".environment",
+								Code:     mcpCodeInvalidEnvironment,
+								Severity: "error",
+								Message:  "environment must be a table",
+							})
+						} else {
+							for _, key := range mapKeys(environmentTable) {
+								if err := validateEnvironmentName(key); err != nil {
+									findings = append(findings, ValidationFinding{
+										Source:   source,
+										Path:     "mcp.servers." + name + ".environment." + key,
+										Code:     mcpCodeInvalidEnvironment,
+										Severity: "error",
+										Message:  "invalid environment variable name",
+									})
+									continue
+								}
+
+								stringValue, err := environmentStringValue(key, environmentTable[key])
+								if err != nil {
+									findings = append(findings, ValidationFinding{
+										Source:   source,
+										Path:     "mcp.servers." + name + ".environment." + key,
+										Code:     mcpCodeInvalidEnvironment,
+										Severity: "error",
+										Message:  "environment variable must be string, boolean, integer, or float",
+									})
+									continue
+								}
+
+								if strings.HasPrefix(stringValue, "secret://") {
+									if finding := validateSecretReference(
+										stringValue,
+										source,
+										"mcp.servers."+name+".environment."+key,
+									); finding != nil {
+										finding.Code = mcpCodeInvalidEnvironment
+										findings = append(findings, *finding)
+									}
+								}
+							}
+						}
+					}
+
+				case mcpTransportHTTP:
+					if _, exists := definition["command"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".command",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "command is not allowed for http transport",
+						})
+					}
+					if _, exists := definition["args"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".args",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "args is not allowed for http transport",
+						})
+					}
+					if _, exists := definition["cwd"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".cwd",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "cwd is not allowed for http transport",
+						})
+					}
+					if _, exists := definition["environment"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".environment",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "environment is not allowed for http transport",
+						})
+					}
+					if _, exists := definition["inherit_environment"]; exists {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".inherit_environment",
+							Code:     mcpCodeConflictingFields,
+							Severity: "error",
+							Message:  "inherit_environment is not allowed for http transport",
+						})
+					}
+
+					urlValue, exists := definition["url"]
+					if !exists && resolvedMode {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".url",
+							Code:     mcpCodeMissingURL,
+							Severity: "error",
+							Message:  "http transport requires url",
+						})
+					} else if urlText, ok := urlValue.(string); !ok || strings.TrimSpace(urlText) == "" {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".url",
+							Code:     mcpCodeInvalidURL,
+							Severity: "error",
+							Message:  "url must be a non-empty absolute HTTP or HTTPS URL",
+						})
+					} else if err := validateMCPHTTPURL(urlText); err != nil {
+						findings = append(findings, ValidationFinding{
+							Source:   source,
+							Path:     "mcp.servers." + name + ".url",
+							Code:     mcpCodeInvalidURL,
+							Severity: "error",
+							Message:  "url must be a valid absolute HTTP or HTTPS URL",
+						})
+					}
+
+					if headersValue, exists := definition["headers"]; exists {
+						headersTable, ok := headersValue.(map[string]any)
+						if !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".headers",
+								Code:     mcpCodeInvalidHeaders,
+								Severity: "error",
+								Message:  "headers must be a table with string values",
+							})
+						} else {
+							for _, key := range mapKeys(headersTable) {
+								headerValue, ok := headersTable[key].(string)
+								if !ok {
+									findings = append(findings, ValidationFinding{
+										Source:   source,
+										Path:     "mcp.servers." + name + ".headers." + key,
+										Code:     mcpCodeInvalidHeaders,
+										Severity: "error",
+										Message:  "headers must be a table with string values",
+									})
+									continue
+								}
+
+								if strings.HasPrefix(headerValue, "secret://") {
+									if finding := validateSecretReference(
+										headerValue,
+										source,
+										"mcp.servers."+name+".headers."+key,
+									); finding != nil {
+										finding.Code = mcpCodeInvalidHeaders
+										findings = append(findings, *finding)
+									}
+								}
+							}
+						}
+					}
+
+				case "":
+					if commandValue, exists := definition["command"]; exists {
+						if command, ok := commandValue.(string); !ok || strings.TrimSpace(command) == "" {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".command",
+								Code:     mcpCodeInvalidCommand,
+								Severity: "error",
+								Message:  "command must be a non-empty string",
+							})
+						}
+					}
+					if argsValue, exists := definition["args"]; exists {
+						if finding, ok := validateStringArrayField(
+							source,
+							"mcp.servers."+name+".args",
+							argsValue,
+						); ok {
+							finding.Code = mcpCodeInvalidArgs
+							findings = append(findings, finding)
+						}
+					}
+					if cwdValue, exists := definition["cwd"]; exists {
+						if _, ok := cwdValue.(string); !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".cwd",
+								Code:     validationCodeInvalidType,
+								Severity: "error",
+								Message:  "cwd must be a string",
+							})
+						}
+					}
+					if environmentValue, exists := definition["environment"]; exists {
+						if _, ok := environmentValue.(map[string]any); !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".environment",
+								Code:     mcpCodeInvalidEnvironment,
+								Severity: "error",
+								Message:  "environment must be a table",
+							})
+						}
+					}
+					if headersValue, exists := definition["headers"]; exists {
+						if _, ok := headersValue.(map[string]any); !ok {
+							findings = append(findings, ValidationFinding{
+								Source:   source,
+								Path:     "mcp.servers." + name + ".headers",
+								Code:     mcpCodeInvalidHeaders,
+								Severity: "error",
+								Message:  "headers must be a table with string values",
+							})
+						}
+					}
+
+				default:
+					findings = append(findings, ValidationFinding{
+						Source:   source,
+						Path:     "mcp.servers." + name + ".transport",
+						Code:     mcpCodeUnsupportedTransport,
+						Severity: "error",
+						Message:  "transport must be stdio or http",
+					})
+				}
+			}
+
+		default:
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "mcp.servers",
+				Code:     validationCodeInvalidType,
+				Severity: "error",
+				Message:  "mcp.servers must be a table of server definitions or a legacy array of strings",
+			})
 		}
 	}
 
@@ -590,57 +1045,167 @@ func validateSecretReference(raw, source, path string) *ValidationFinding {
 }
 
 func validateResolvedSecretReferences(configuration map[string]any) []ValidationFinding {
-	environmentValue, exists := configuration["environment"]
-	if !exists {
-		return nil
-	}
-
-	environment, ok := environmentValue.(map[string]any)
-	if !ok {
-		return nil
-	}
-
 	definitions := loadSecretCommandDefinitions(configuration)
 	findings := []ValidationFinding{}
 
-	for _, key := range mapKeys(environment) {
-		value, ok := environment[key].(string)
-		if !ok || !strings.HasPrefix(value, "secret://") {
-			continue
-		}
+	environmentValue, exists := configuration["environment"]
+	if exists {
+		environment, ok := environmentValue.(map[string]any)
+		if ok {
+			for _, key := range mapKeys(environment) {
+				value, ok := environment[key].(string)
+				if !ok || !strings.HasPrefix(value, "secret://") {
+					continue
+				}
 
-		reference, err := parseSecretReference(value)
-		if err != nil {
-			findings = append(findings, ValidationFinding{
-				Source:   resolvedValidationSource,
-				Path:     "environment." + key,
-				Code:     secretFindingCode(err),
-				Severity: "error",
-				Message:  secretFindingMessage(err),
-			})
-			continue
-		}
+				reference, err := parseSecretReference(value)
+				if err != nil {
+					findings = append(findings, ValidationFinding{
+						Source:   resolvedValidationSource,
+						Path:     "environment." + key,
+						Code:     secretFindingCode(err),
+						Severity: "error",
+						Message:  secretFindingMessage(err),
+					})
+					continue
+				}
 
-		switch reference.Provider {
-		case secretProviderEnv:
-		case secretProviderCommand:
-			if _, exists := definitions[reference.Reference]; !exists {
-				findings = append(findings, ValidationFinding{
-					Source:   resolvedValidationSource,
-					Path:     "environment." + key,
-					Code:     secretCodeMissingCommand,
-					Severity: "error",
-					Message:  fmt.Sprintf("secret command %q is not configured", reference.Reference),
-				})
+				switch reference.Provider {
+				case secretProviderEnv:
+				case secretProviderCommand:
+					if _, exists := definitions[reference.Reference]; !exists {
+						findings = append(findings, ValidationFinding{
+							Source:   resolvedValidationSource,
+							Path:     "environment." + key,
+							Code:     secretCodeMissingCommand,
+							Severity: "error",
+							Message:  fmt.Sprintf("secret command %q is not configured", reference.Reference),
+						})
+					}
+				default:
+					findings = append(findings, ValidationFinding{
+						Source:   resolvedValidationSource,
+						Path:     "environment." + key,
+						Code:     secretCodeUnknownProvider,
+						Severity: "error",
+						Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
+					})
+				}
 			}
-		default:
-			findings = append(findings, ValidationFinding{
-				Source:   resolvedValidationSource,
-				Path:     "environment." + key,
-				Code:     secretCodeUnknownProvider,
-				Severity: "error",
-				Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
-			})
+		}
+	}
+
+	mcpValue, exists := configuration["mcp"]
+	if !exists {
+		return findings
+	}
+	mcp, ok := mcpValue.(map[string]any)
+	if !ok {
+		return findings
+	}
+
+	serversValue, exists := mcp["servers"]
+	if !exists {
+		return findings
+	}
+
+	servers, ok := serversValue.(map[string]any)
+	if !ok {
+		return findings
+	}
+
+	for _, name := range mapKeys(servers) {
+		definition, ok := servers[name].(map[string]any)
+		if !ok {
+			continue
+		}
+
+		if environmentValue, exists := definition["environment"]; exists {
+			environmentTable, ok := environmentValue.(map[string]any)
+			if ok {
+				for _, key := range mapKeys(environmentTable) {
+					value, ok := environmentTable[key].(string)
+					if !ok || !strings.HasPrefix(value, "secret://") {
+						continue
+					}
+
+					reference, err := parseSecretReference(value)
+					if err != nil {
+						findings = append(findings, ValidationFinding{
+							Source:   resolvedValidationSource,
+							Path:     "mcp.servers." + name + ".environment." + key,
+							Code:     secretFindingCode(err),
+							Severity: "error",
+							Message:  secretFindingMessage(err),
+						})
+						continue
+					}
+
+					if reference.Provider == secretProviderCommand {
+						if _, exists := definitions[reference.Reference]; !exists {
+							findings = append(findings, ValidationFinding{
+								Source:   resolvedValidationSource,
+								Path:     "mcp.servers." + name + ".environment." + key,
+								Code:     secretCodeMissingCommand,
+								Severity: "error",
+								Message:  fmt.Sprintf("secret command %q is not configured", reference.Reference),
+							})
+						}
+					} else if reference.Provider != secretProviderEnv {
+						findings = append(findings, ValidationFinding{
+							Source:   resolvedValidationSource,
+							Path:     "mcp.servers." + name + ".environment." + key,
+							Code:     secretCodeUnknownProvider,
+							Severity: "error",
+							Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
+						})
+					}
+				}
+			}
+		}
+
+		if headersValue, exists := definition["headers"]; exists {
+			headersTable, ok := headersValue.(map[string]any)
+			if ok {
+				for _, key := range mapKeys(headersTable) {
+					value, ok := headersTable[key].(string)
+					if !ok || !strings.HasPrefix(value, "secret://") {
+						continue
+					}
+
+					reference, err := parseSecretReference(value)
+					if err != nil {
+						findings = append(findings, ValidationFinding{
+							Source:   resolvedValidationSource,
+							Path:     "mcp.servers." + name + ".headers." + key,
+							Code:     secretFindingCode(err),
+							Severity: "error",
+							Message:  secretFindingMessage(err),
+						})
+						continue
+					}
+
+					if reference.Provider == secretProviderCommand {
+						if _, exists := definitions[reference.Reference]; !exists {
+							findings = append(findings, ValidationFinding{
+								Source:   resolvedValidationSource,
+								Path:     "mcp.servers." + name + ".headers." + key,
+								Code:     secretCodeMissingCommand,
+								Severity: "error",
+								Message:  fmt.Sprintf("secret command %q is not configured", reference.Reference),
+							})
+						}
+					} else if reference.Provider != secretProviderEnv {
+						findings = append(findings, ValidationFinding{
+							Source:   resolvedValidationSource,
+							Path:     "mcp.servers." + name + ".headers." + key,
+							Code:     secretCodeUnknownProvider,
+							Severity: "error",
+							Message:  fmt.Sprintf("unknown secret provider %q", reference.Provider),
+						})
+					}
+				}
+			}
 		}
 	}
 
