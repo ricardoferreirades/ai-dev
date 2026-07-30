@@ -15,7 +15,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.3.0"
+const version = "0.4.0"
 
 type Paths struct {
 	ConfigHome string
@@ -36,6 +36,14 @@ type ProjectInfo struct {
 	ConfigHome         string `json:"config_home"`
 	DataHome           string `json:"data_home"`
 	StateHome          string `json:"state_home"`
+}
+
+type UsageError struct {
+	Message string
+}
+
+func (error UsageError) Error() string {
+	return error.Message
 }
 
 func main() {
@@ -83,6 +91,11 @@ func main() {
 			die(err)
 		}
 
+	case "validate":
+		if err := validateCommand(paths, os.Args[2:]); err != nil {
+			die(err)
+		}
+
 	case "config-path":
 		info, err := resolveProjectInfo(paths)
 		if err != nil {
@@ -102,7 +115,7 @@ func main() {
 		usage()
 
 	default:
-		die(fmt.Errorf("unknown command: %s", command))
+		die(UsageError{Message: fmt.Sprintf("unknown command: %s", command)})
 	}
 }
 
@@ -113,6 +126,7 @@ func usage() {
   ai-dev root
   ai-dev config [--json | --compact]
   ai-dev env [--shell sh]
+  ai-dev validate [--strict] [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -123,6 +137,7 @@ Commands:
   root         Print the current project root
   config       Print the resolved global and project configuration
   env          Print shell-safe environment exports
+  validate     Validate source and resolved configuration
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -131,6 +146,12 @@ Commands:
 
 func die(err error) {
 	fmt.Fprintf(os.Stderr, "ai-dev: %v\n", err)
+
+	var usageError UsageError
+	if errors.As(err, &usageError) {
+		os.Exit(2)
+	}
+
 	os.Exit(1)
 }
 
@@ -413,7 +434,7 @@ func configCommand(paths Paths, arguments []string) error {
 		case "--compact":
 			compact = true
 		default:
-			return fmt.Errorf("unknown config option: %s", argument)
+			return UsageError{Message: fmt.Sprintf("unknown config option: %s", argument)}
 		}
 	}
 
@@ -421,6 +442,15 @@ func configCommand(paths Paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
+
+	validation, err := validateConfigurationForProject(paths, info, false)
+	if err != nil {
+		return err
+	}
+	if len(validation.Errors) > 0 {
+		return configurationValidationError(validation)
+	}
+	printConfigurationWarnings(validation.Warnings)
 
 	resolved, sources, err := resolveConfiguration(paths, info)
 	if err != nil {
@@ -634,14 +664,8 @@ func doctor(paths Paths) error {
 	}
 
 	globalPath := filepath.Join(paths.ConfigHome, "global.toml")
-
 	if fileExists(globalPath) {
-		if _, err := readTOML(globalPath); err != nil {
-			fmt.Printf("[error] %v\n", err)
-			problems++
-		} else {
-			fmt.Printf("[ok] global configuration: %s\n", globalPath)
-		}
+		fmt.Printf("[ok] global configuration found: %s\n", globalPath)
 	} else {
 		fmt.Printf("[notice] global configuration does not exist: %s\n", globalPath)
 	}
@@ -656,14 +680,63 @@ func doctor(paths Paths) error {
 		projectPath := projectConfigPath(paths, info.ProjectID)
 
 		if fileExists(projectPath) {
-			if _, err := readTOML(projectPath); err != nil {
-				fmt.Printf("[error] %v\n", err)
-				problems++
-			} else {
-				fmt.Printf("[ok] project configuration: %s\n", projectPath)
-			}
+			fmt.Printf("[ok] project configuration found: %s\n", projectPath)
 		} else {
 			fmt.Printf("[notice] project configuration does not exist: %s\n", projectPath)
+		}
+
+		validation, validationErr := validateConfigurationForProject(paths, info, false)
+		if validationErr != nil {
+			fmt.Printf("[error] configuration validation: %v\n", validationErr)
+			problems++
+		} else {
+			for _, warning := range validation.Warnings {
+				fmt.Printf(
+					"[notice] deprecated configuration: source=%s path=%s code=%s message=%s\n",
+					warning.Source,
+					warning.Path,
+					warning.Code,
+					warning.Message,
+				)
+			}
+
+			for _, finding := range validation.Errors {
+				switch finding.Code {
+				case validationCodeUnsupportedSchema:
+					fmt.Printf(
+						"[error] unsupported schema version: source=%s path=%s code=%s message=%s\n",
+						finding.Source,
+						finding.Path,
+						finding.Code,
+						finding.Message,
+					)
+				case validationCodeConflictingValue:
+					fmt.Printf(
+						"[error] conflicting configuration: source=%s path=%s code=%s message=%s\n",
+						finding.Source,
+						finding.Path,
+						finding.Code,
+						finding.Message,
+					)
+				default:
+					fmt.Printf(
+						"[error] invalid configuration: source=%s path=%s code=%s message=%s\n",
+						finding.Source,
+						finding.Path,
+						finding.Code,
+						finding.Message,
+					)
+				}
+				problems++
+			}
+
+			if len(validation.Errors) == 0 {
+				if len(validation.Warnings) == 0 {
+					fmt.Println("[ok] configuration validation: valid")
+				} else {
+					fmt.Println("[ok] configuration validation: valid (with warnings)")
+				}
+			}
 		}
 	}
 
@@ -674,7 +747,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 3 is available.")
+	fmt.Println("Everything required for Checkpoint 4 is available.")
 	return nil
 }
 
@@ -687,25 +760,34 @@ func envCommand(paths Paths, arguments []string) error {
 		switch argument {
 		case "--shell":
 			if index+1 >= len(arguments) {
-				return errors.New("--shell requires a value")
+				return UsageError{Message: "--shell requires a value"}
 			}
 
 			index++
 			shell = arguments[index]
 
 		default:
-			return fmt.Errorf("unknown env option: %s", argument)
+			return UsageError{Message: fmt.Sprintf("unknown env option: %s", argument)}
 		}
 	}
 
 	if shell != "sh" {
-		return fmt.Errorf("unsupported shell: %s", shell)
+		return UsageError{Message: fmt.Sprintf("unsupported shell: %s", shell)}
 	}
 
 	info, err := resolveProjectInfo(paths)
 	if err != nil {
 		return err
 	}
+
+	validation, err := validateConfigurationForProject(paths, info, false)
+	if err != nil {
+		return err
+	}
+	if len(validation.Errors) > 0 {
+		return configurationValidationError(validation)
+	}
+	printConfigurationWarnings(validation.Warnings)
 
 	resolved, _, err := resolveConfiguration(paths, info)
 	if err != nil {
@@ -783,4 +865,96 @@ func environmentStringValue(name string, value any) (string, error) {
 
 func shellQuote(value string) string {
 	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
+}
+
+func configurationValidationError(report ValidationReport) error {
+	if len(report.Errors) == 0 {
+		return errors.New("configuration validation failed")
+	}
+
+	first := report.Errors[0]
+	return fmt.Errorf(
+		"configuration validation failed: source=%s path=%s code=%s",
+		first.Source,
+		first.Path,
+		first.Code,
+	)
+}
+
+func printConfigurationWarnings(warnings []ValidationFinding) {
+	for _, warning := range warnings {
+		fmt.Fprintf(
+			os.Stderr,
+			"ai-dev: configuration warning: source=%s path=%s code=%s message=%s\n",
+			warning.Source,
+			warning.Path,
+			warning.Code,
+			warning.Message,
+		)
+	}
+}
+
+func validateCommand(paths Paths, arguments []string) error {
+	strict := false
+	jsonOutput := false
+
+	for _, argument := range arguments {
+		switch argument {
+		case "--strict":
+			strict = true
+		case "--json":
+			jsonOutput = true
+		default:
+			return UsageError{Message: fmt.Sprintf("unknown validate option: %s", argument)}
+		}
+	}
+
+	report, err := validateConfigurationForCurrentProject(paths, strict)
+	if err != nil {
+		return err
+	}
+
+	if jsonOutput {
+		output, err := validationOutputJSON(report)
+		if err != nil {
+			return err
+		}
+		fmt.Println(output)
+	} else {
+		for _, source := range report.Sources {
+			fmt.Printf("source=%s\n", source)
+		}
+
+		for _, warning := range report.Warnings {
+			fmt.Printf(
+				"[warning] source=%s path=%s code=%s message=%s\n",
+				warning.Source,
+				warning.Path,
+				warning.Code,
+				warning.Message,
+			)
+		}
+
+		for _, finding := range report.Errors {
+			fmt.Printf(
+				"[error] source=%s path=%s code=%s message=%s\n",
+				finding.Source,
+				finding.Path,
+				finding.Code,
+				finding.Message,
+			)
+		}
+
+		if report.Valid {
+			fmt.Println("valid=true")
+		} else {
+			fmt.Println("valid=false")
+		}
+	}
+
+	if report.Valid {
+		return nil
+	}
+
+	return errors.New("validation failed")
 }

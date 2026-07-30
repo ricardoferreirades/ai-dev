@@ -188,18 +188,24 @@ setup_integration_fixture() {
   git -C "$project_b" remote add origin https://example.com/acme/project-b.git
 
   cat >"$ai_dev_config/global.toml" <<'EOF'
+schema = "v1"
+
 [environment]
 GLOBAL_ONLY = "global"
 OVERRIDDEN = "global"
 EOF
 
   cat >"$ai_dev_config/projects/example.com-acme-project-a.toml" <<'EOF'
+schema = "v1"
+
 [environment]
 PROJECT_ONLY = "project-a"
 OVERRIDDEN = "project-a"
 EOF
 
   cat >"$ai_dev_config/projects/example.com-acme-project-b.toml" <<'EOF'
+schema = "v1"
+
 [environment]
 PROJECT_ONLY = "project-b"
 OVERRIDDEN = "project-b"
@@ -332,7 +338,8 @@ test_real_invalid_toml() {
 
   if [[
     "$status" -ne 0 &&
-      "$stderr_output" == *"parse configuration"* &&
+      "$stderr_output" == *"configuration validation failed"* &&
+      "$stderr_output" == *"invalid_value"* &&
       "$stderr_output" == *"failed to resolve environment"*
   ]]; then
     pass "real invalid TOML fails activation clearly"

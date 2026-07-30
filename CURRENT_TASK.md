@@ -1,134 +1,106 @@
-# Current Task: Checkpoint 3B (fresh implementation)
-
-## Status policy
-
-Checkpoint 3B is **not complete**. Treat any file claiming completion as stale
-until all acceptance criteria in this document pass.
+# Current Task: Checkpoint 4
 
 ## Objective
 
-Implement automatic environment activation and unloading through `direnv`,
-while keeping project configuration outside individual Git repositories and
-worktrees.
+Introduce a versioned configuration schema and reusable validation layer
+before environment activation or future MCP, secret, and client-specific
+resolution.
 
-## Installation scope (for this checkpoint)
+The checkpoint must not change project detection, configuration merge
+semantics, valid environment export, or direnv behavior.
 
-Deliver only:
+## Schema
 
-- reusable helper source in this repository;
-- automated tests where practical;
-- documented manual installation commands;
-- documented rollback commands.
+The current supported schema version is:
 
-Do **not** implement an automated installer and do **not** modify files under
-the user's home directory during implementation.
-
-## CLI change policy
-
-Preferred architecture is shell-only integration using existing:
-
-```text
-ai-dev env --shell sh
+```toml
+schema = "v1"
 ```
 
-Do not change the Go CLI unless shell-only integration is proven insufficient.
-If CLI changes become necessary, stop and document:
+Schema `v1` recognizes:
 
-1. Why shell integration is insufficient.
-2. Proposed CLI behavior.
-3. Compatibility implications.
-4. Tests that would be added.
+- `schema`: string;
+- `name`: string;
+- `profile`: string;
+- `environment`: table of existing supported scalar values;
+- `mcp.servers`: array of strings;
+- `prompts.default`: string;
+- `prompts.project`: string;
+- `rules.enabled`: array of strings.
 
-No CLI change may be implemented without explicit approval.
+Unknown fields are errors where a table has a defined schema.
 
-## Nested-directory behavior constraints
+Legacy files without `schema` are interpreted as `v1` with a
+`missing_schema` deprecation warning. Strict validation treats warnings
+as failures. Explicit unsupported schema versions are always errors.
 
-The helper must use existing `ai-dev` project resolution behavior as-is:
+## Validation flow
 
-- Inside a Git repository, nested directories resolve to that repository's
-  project ID/overlay.
-- Outside a Git repository, nested directories resolve as filesystem projects
-  per current behavior.
+Validation applies independently to:
 
-The helper must not implement custom project-detection logic.
+1. `global.toml`;
+2. the current project overlay;
+3. the resolved post-merge configuration.
 
-## Compatibility targets
+The centralized validation layer is reused by:
 
-- direnv >= 2.30
-- Bash >= 4.0
-- zsh >= 5.8
-- current Go version supported by this repository
+- `ai-dev validate [--strict] [--json]`;
+- `ai-dev doctor`;
+- `ai-dev config`;
+- `ai-dev env`;
+- future configuration consumers.
 
-Use POSIX-sh-compatible generated environment syntax.
+Validation findings contain source, field path, stable code, severity,
+and a value-safe message. Findings are sorted by source, path, code, and
+message. Source order records global configuration before the project
+overlay.
 
-## Error/diagnostics requirements
+## Required stable codes
 
-- Activation failures must return nonzero status.
-- Errors must clearly identify ai-dev environment resolution failure.
-- Errors must not print resolved environment values.
-- Errors must not print secrets.
-- Messages should provide diagnostic context for:
-  - missing `ai-dev`;
-  - invalid TOML;
-  - command failures.
-- Tests should assert stable identifying fragments, not full exact strings.
+- `missing_schema`
+- `unsupported_schema`
+- `unknown_field`
+- `invalid_type`
+- `invalid_value`
+- `deprecated_field`
+- `conflicting_value`
+- `invalid_environment_name`
+- `invalid_environment_value`
 
-## Desired architecture
+## CLI exit status
 
-Implement direnv stdlib helper:
-
-```text
-use_ai_dev
-```
-
-Repository source:
-
-```text
-shell/direnv/ai-dev.sh
-```
-
-Expected installed location:
-
-```text
-~/.config/direnv/lib/ai-dev.sh
-```
-
-A parent-directory `.envrc` must be able to contain only:
-
-```sh
-use_ai_dev
-```
-
-The helper must evaluate `ai-dev env --shell sh` output using direnv-supported
-environment loading behavior, and must not generate files in child repositories
-or worktrees.
-
-## Checkpoint boundary
-
-Implement, test, and document Checkpoint 3B only.
-
-Do not start:
-
-- secret handling;
-- MCP integration;
-- IDE adapters;
-- prompt/rules/skills registries;
-- profiles;
-- synchronization features.
+- `0`: valid configuration;
+- `1`: validation errors, or warnings in strict mode;
+- `2`: invalid command usage.
 
 ## Acceptance criteria
 
-- direnv activation works under bash.
-- direnv activation works under zsh.
-- Global environment values are activated.
-- Project environment values are activated.
-- Project values override global values.
-- Moving to another configured project updates the environment.
-- Leaving the managed directory unloads variables.
-- A worktree resolves the same project overlay as its main checkout.
-- Invalid TOML causes activation to fail clearly.
-- Existing `ai-dev env` behavior remains unchanged.
-- `go test ./...` passes.
-- `go vet ./...` passes.
-- A temporary binary builds successfully.
-- Documentation includes install, test, and rollback steps.
+- `schema = "v1"` is recognized.
+- Unsupported schema versions are rejected.
+- Missing schema warns normally and fails in strict mode.
+- Unknown fields and invalid field types are detected.
+- Invalid array element types are detected.
+- Global and project sources are validated independently.
+- The merged configuration is validated.
+- Human, strict, and deterministic JSON output work.
+- Findings include source, path, code, severity, and message.
+- `doctor` classifies missing, valid, deprecated, unsupported,
+  conflicting, and invalid configuration.
+- `config` and `env` validate before producing resolved output.
+- `env` and direnv emit no partial exports after validation failure.
+- Existing commands remain compatible for valid configurations.
+- Tests use isolated temporary directories.
+- `go test ./...` and `go vet ./...` pass.
+- A static temporary binary builds successfully.
+- Documentation covers schema use, migration, validation, examples, and
+  rollback.
+
+## Out of scope
+
+- Automatic migration
+- Secret providers or secret resolution
+- MCP execution or client generation
+- Prompt or rule file loading
+- Skills, profile resolution beyond scalar validation, machine overlays,
+  plugins, synchronization, packaging
+- Dynamic or network-based schemas

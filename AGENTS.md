@@ -62,16 +62,35 @@ Completed checkpoints:
 - Shell helper:
   - `ai-activate`
 
+### Checkpoint 3B
+
+- Automatic activation and unloading through `direnv`.
+- Shared parent-directory `.envrc` support for repositories and worktrees.
+- Reusable helper:
+  - `shell/direnv/ai-dev.sh`
+
+### Checkpoint 4
+
+- Versioned configuration schema with explicit `v1` dispatch.
+- Independent global and project source validation.
+- Resolved post-merge validation.
+- Stable, deterministic validation findings.
+- Normal, strict, and JSON validation modes.
+- Validation integration with `doctor`, `config`, `env`, and direnv.
+- Command:
+  - `ai-dev validate`
+  - `ai-dev validate --strict`
+  - `ai-dev validate --json`
+
 Current version:
 
-- `0.3.0`
+- `0.4.0`
 
 ## Current task
 
-Implement Checkpoint 3B: automatic environment activation and unloading using
-`direnv`.
-
-Read `CURRENT_TASK.md` before making changes.
+Checkpoint 4 is complete. Read `CURRENT_TASK.md` and
+`docs/checkpoints/04-schema-validation.md` before changing schema or
+validation behavior.
 
 ## Development rules
 

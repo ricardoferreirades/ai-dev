@@ -31,6 +31,7 @@ ai-dev project-id
 ai-dev root
 ai-dev config [--json | --compact]
 ai-dev env [--shell sh]
+ai-dev validate [--strict] [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -42,6 +43,8 @@ ai-dev version
 - `config` — print the resolved global and project configuration.
 - `env` — print shell-safe `export` statements for the resolved
   `[environment]` table.
+- `validate` — validate the current global, project, and resolved
+  configuration context.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -58,11 +61,49 @@ Configuration is TOML-based and layered:
 Run `ai-dev config-path` from inside a project to find its overlay path,
 and `ai-dev config` to see the fully resolved configuration.
 
+### Schema and validation
+
+Schema `v1` is the current configuration contract:
+
+```toml
+schema = "v1"
+name = "Ricardo"
+profile = "default"
+
+[environment]
+EDITOR = "vim"
+
+[mcp]
+servers = ["filesystem"]
+
+[prompts]
+default = "prompts/default.md"
+project = "prompts/project.md"
+
+[rules]
+enabled = ["safe-shell"]
+```
+
+Validate the current global file, project overlay, and merged result:
+
+```sh
+ai-dev validate
+ai-dev validate --strict
+ai-dev validate --json
+```
+
+Legacy files without `schema` continue to work in normal mode with a
+deprecation warning. Strict mode treats that warning as a validation
+failure. See
+[`docs/checkpoints/04-schema-validation.md`](docs/checkpoints/04-schema-validation.md)
+for the complete schema, diagnostics, migration, and rollback reference.
+
 ## Environment activation
 
 `ai-dev env --shell sh` prints `export KEY='value'` statements resolved
-from the project's `[environment]` configuration table. These can be
-activated manually:
+from the project's validated `[environment]` configuration table. It
+emits no exports when validation fails. Valid exports can be activated
+manually:
 
 ```sh
 eval "$(ai-dev env --shell sh)"
