@@ -29,7 +29,9 @@ CGO_ENABLED=0 go build -trimpath -o ./bin/ai-dev .
 ai-dev info
 ai-dev project-id
 ai-dev root
-ai-dev config [--json | --compact]
+ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config [--json | --compact]
+ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config sources [--json]
+ai-dev [--machine <id>] [--profile <id>]... [--profile-only <id>]... config origin <field.path> [--json]
 ai-dev env [--shell sh]
 ai-dev validate [--strict] [--json]
 ai-dev secret resolve <reference>
@@ -54,6 +56,12 @@ ai-dev rule show <identifier> [--json]
 ai-dev rule search <query> [--json]
 ai-dev rule resolve [--json]
 ai-dev rule info [--json]
+ai-dev profile list [--json]
+ai-dev profile show <identifier> [--json]
+ai-dev profile active [--json]
+ai-dev profile resolve [--with-project] [--json]
+ai-dev machine show [--json]
+ai-dev context [--json]
 ai-dev config-path
 ai-dev doctor
 ai-dev version
@@ -63,6 +71,8 @@ ai-dev version
 - `project-id` — print the stable project identifier.
 - `root` — print the current project root.
 - `config` — print the resolved global and project configuration.
+- `config sources` — print ordered configuration sources and precedence.
+- `config origin` — show source contributions for a specific field path.
 - `env` — print shell-safe `export` statements for the resolved
   `[environment]` table, resolving `secret://` references first.
 - `validate` — validate the current global, project, and resolved
@@ -72,6 +82,9 @@ ai-dev version
 - `client` — inspect adapter capabilities and generate client-specific MCP configuration.
 - `prompt` — discover, inspect, search, and resolve prompt registry resources.
 - `rule` — discover, inspect, search, and resolve rule registry resources.
+- `profile` — inspect available, active, and resolved profile overlays.
+- `machine` — inspect machine identity normalization and overlay path.
+- `context` — print runtime context, active profiles, and merge order.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
@@ -81,9 +94,9 @@ ai-dev version
 Configuration is TOML-based and layered:
 
 1. `~/.config/ai-dev/global.toml` — applies to every project.
-2. `~/.config/ai-dev/projects/<project-id>.toml` — overlays specific to
-   one project, merged recursively over the global configuration (arrays
-   are merged in order and de-duplicated).
+2. `~/.config/ai-dev/profiles/<profile>.toml` — optional profile overlays.
+3. `~/.config/ai-dev/machines/<machine-id>.toml` — optional machine overlay.
+4. `~/.config/ai-dev/projects/<project-id>.toml` — project overlay.
 
 Run `ai-dev config-path` from inside a project to find its overlay path,
 and `ai-dev config` to see the fully resolved configuration.
@@ -95,7 +108,10 @@ Schema `v1` is the current configuration contract:
 ```toml
 schema = "v1"
 name = "Ricardo"
-profile = "default"
+profiles = ["default", "team-shared"]
+
+[machine]
+id = "dev-workstation"
 
 [environment]
 EDITOR = "vim"
@@ -163,6 +179,10 @@ validation and comparison commands, secret handling, output file safety, and rol
 See [`docs/checkpoints/08-prompt-rule-registry.md`](docs/checkpoints/08-prompt-rule-registry.md)
 for prompt/rule registry layout, metadata validation, namespacing, composition,
 search and resolve behavior, deterministic ordering, and rollback guidance.
+
+See [`docs/checkpoints/09-profiles-machine-overlays.md`](docs/checkpoints/09-profiles-machine-overlays.md)
+for profile and machine overlay precedence, runtime override flags, source
+provenance commands, and compatibility guidance.
 
 ## Environment activation
 

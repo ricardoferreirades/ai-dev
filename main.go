@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.8.0"
+const version = "0.9.0"
 
 type Paths struct {
 	ConfigHome string
@@ -48,7 +48,21 @@ func (error UsageError) Error() string {
 }
 
 func main() {
-	if len(os.Args) < 2 {
+	runtimeOptions, remainingArguments, err := parseRuntimeOptions(os.Args[1:])
+	if err != nil {
+		die(err)
+	}
+	if runtimeOptions.MachineOverride != "" {
+		if err := validateMachineIdentifierForFlag(runtimeOptions.MachineOverride); err != nil {
+			die(err)
+		}
+	}
+	if err := validateExplicitProfiles(runtimeOptions.CLIProfiles); err != nil {
+		die(err)
+	}
+	activeRuntimeOptions = runtimeOptions
+
+	if len(remainingArguments) < 1 {
 		usage()
 		return
 	}
@@ -58,7 +72,7 @@ func main() {
 		die(err)
 	}
 
-	command := os.Args[1]
+	command := remainingArguments[0]
 
 	switch command {
 	case "info":
@@ -83,42 +97,57 @@ func main() {
 		fmt.Println(info.ProjectRoot)
 
 	case "config":
-		if err := configCommand(paths, os.Args[2:]); err != nil {
+		if err := configCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "env":
-		if err := envCommand(paths, os.Args[2:]); err != nil {
+		if err := envCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "validate":
-		if err := validateCommand(paths, os.Args[2:]); err != nil {
+		if err := validateCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "secret":
-		if err := secretCommand(paths, os.Args[2:]); err != nil {
+		if err := secretCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "mcp":
-		if err := mcpCommand(paths, os.Args[2:]); err != nil {
+		if err := mcpCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "client":
-		if err := clientCommand(paths, os.Args[2:]); err != nil {
+		if err := clientCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "prompt":
-		if err := promptCommand(paths, os.Args[2:]); err != nil {
+		if err := promptCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
 	case "rule":
-		if err := ruleCommand(paths, os.Args[2:]); err != nil {
+		if err := ruleCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "profile":
+		if err := profileCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "machine":
+		if err := machineCommand(paths, remainingArguments[1:]); err != nil {
+			die(err)
+		}
+
+	case "context":
+		if err := contextCommand(paths, remainingArguments[1:]); err != nil {
 			die(err)
 		}
 
@@ -147,6 +176,7 @@ func main() {
 
 func usage() {
 	fmt.Print(`Usage:
+	ai-dev [--machine <machine-id>] [--profile <profile>]... [--profile-only <profile>]... <command>
   ai-dev info
   ai-dev project-id
   ai-dev root
@@ -175,6 +205,14 @@ func usage() {
 	ai-dev rule search <query> [--json]
 	ai-dev rule resolve [--json]
 	ai-dev rule info [--json]
+	ai-dev profile list [--json]
+	ai-dev profile show <profile> [--json]
+	ai-dev profile active [--json]
+	ai-dev profile resolve [--with-project] [--json]
+	ai-dev machine show [--json]
+	ai-dev context [--json]
+	ai-dev config sources [--json]
+	ai-dev config origin <field-path> [--json]
   ai-dev config-path
   ai-dev doctor
   ai-dev version
@@ -191,6 +229,9 @@ Commands:
 	client       Inspect and generate client adapter configurations
 	prompt       Inspect and resolve prompt registry resources
 	rule         Inspect and resolve rule registry resources
+	profile      Inspect and resolve reusable profile overlays
+	machine      Inspect machine overlay selection and status
+	context      Display active source resolution context
   config-path  Print the expected project configuration path
   doctor       Check commands, directories, and configuration files
   version      Print the ai-dev version
@@ -478,6 +519,15 @@ func printProjectInfo(info ProjectInfo) {
 }
 
 func configCommand(paths Paths, arguments []string) error {
+	if len(arguments) > 0 {
+		switch arguments[0] {
+		case "sources":
+			return configSourcesCommand(paths, arguments[1:])
+		case "origin":
+			return configOriginCommand(paths, arguments[1:])
+		}
+	}
+
 	compact := false
 
 	for _, argument := range arguments {
@@ -528,37 +578,6 @@ func configCommand(paths Paths, arguments []string) error {
 
 	fmt.Println(string(output))
 	return nil
-}
-
-func resolveConfiguration(
-	paths Paths,
-	info ProjectInfo,
-) (map[string]any, []string, error) {
-	globalPath := filepath.Join(paths.ConfigHome, "global.toml")
-	projectPath := projectConfigPath(paths, info.ProjectID)
-
-	resolved := map[string]any{}
-	sources := []string{}
-
-	if fileExists(globalPath) {
-		globalConfig, err := readTOML(globalPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		resolved = mergeMaps(resolved, globalConfig)
-		sources = append(sources, globalPath)
-	}
-
-	if fileExists(projectPath) {
-		projectConfig, err := readTOML(projectPath)
-		if err != nil {
-			return nil, nil, err
-		}
-		resolved = mergeMaps(resolved, projectConfig)
-		sources = append(sources, projectPath)
-	}
-
-	return resolved, sources, nil
 }
 
 func projectConfigPath(paths Paths, projectID string) string {
@@ -827,6 +846,13 @@ func doctor(paths Paths) error {
 						}
 					}
 
+					for _, line := range profileMachineDoctorLines(paths, info) {
+						fmt.Println(line)
+						if strings.HasPrefix(line, "[error]") {
+							problems++
+						}
+					}
+
 					resolver := newSecretResolver(loadSecretCommandDefinitions(resolved))
 					results, err := secretCheckResults(context.Background(), resolved, resolver)
 					if err != nil {
@@ -872,7 +898,7 @@ func doctor(paths Paths) error {
 		return errors.New("doctor checks failed")
 	}
 
-	fmt.Println("Everything required for Checkpoint 8 is available.")
+	fmt.Println("Everything required for Checkpoint 9 is available.")
 	return nil
 }
 

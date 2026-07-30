@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sort"
 	"strings"
 )
@@ -46,6 +45,10 @@ type loadedConfigSource struct {
 	Path       string
 	Config     map[string]any
 	ParseError error
+	SourceType string
+	Identifier string
+	SelectedBy string
+	Exists     bool
 }
 
 func validateConfigurationForCurrentProject(
@@ -70,12 +73,19 @@ func validateConfigurationForProject(
 
 	for _, source := range sources {
 		if source.ParseError != nil {
+			code := validationCodeInvalidValue
+			message := "invalid TOML syntax"
+			var registryErr registryError
+			if errors.As(source.ParseError, &registryErr) {
+				code = registryErr.Code
+				message = registryErr.Message
+			}
 			findings = append(findings, ValidationFinding{
 				Source:   source.Path,
 				Path:     "$",
-				Code:     validationCodeInvalidValue,
+				Code:     code,
 				Severity: "error",
-				Message:  "invalid TOML syntax",
+				Message:  message,
 			})
 			continue
 		}
@@ -120,41 +130,6 @@ func validateConfigurationForProject(
 
 	report.Valid = len(report.Errors) == 0 && (!strict || len(report.Warnings) == 0)
 	return report, nil
-}
-
-func loadConfigurationSources(
-	paths Paths,
-	info ProjectInfo,
-) ([]loadedConfigSource, map[string]any, []string) {
-	globalPath := filepath.Join(paths.ConfigHome, "global.toml")
-	projectPath := projectConfigPath(paths, info.ProjectID)
-	candidates := []string{globalPath, projectPath}
-
-	sources := make([]loadedConfigSource, 0, len(candidates))
-	resolved := map[string]any{}
-	orderedSources := make([]string, 0, len(candidates))
-
-	for _, candidate := range candidates {
-		if !fileExists(candidate) {
-			continue
-		}
-
-		orderedSources = append(orderedSources, candidate)
-
-		config, err := readTOML(candidate)
-		source := loadedConfigSource{
-			Path:       candidate,
-			Config:     config,
-			ParseError: err,
-		}
-		sources = append(sources, source)
-
-		if err == nil {
-			resolved = mergeMaps(resolved, config)
-		}
-	}
-
-	return sources, resolved, orderedSources
 }
 
 func validateConfigurationDocument(
@@ -232,6 +207,8 @@ func validateSchemaV1Fields(
 		"schema":      true,
 		"name":        true,
 		"profile":     true,
+		"profiles":    true,
+		"machine":     true,
 		"environment": true,
 		"mcp":         true,
 		"prompts":     true,
@@ -254,7 +231,23 @@ func validateSchemaV1Fields(
 	}
 
 	findings = append(findings, validateStringField(source, "name", configuration["name"])...)
-	findings = append(findings, validateStringField(source, "profile", configuration["profile"])...)
+	if finding, ok := validateOptionalStringValue(source, "profile", configuration["profile"]); ok {
+		findings = append(findings, finding)
+	} else if configuration["profile"] != nil {
+		findings = append(findings, ValidationFinding{
+			Source:   source,
+			Path:     "profile",
+			Code:     validationCodeDeprecatedField,
+			Severity: "warning",
+			Message:  "profile is deprecated; use profiles instead",
+		})
+	}
+	if profilesValue, exists := configuration["profiles"]; exists {
+		if finding, ok := validateStringArrayField(source, "profiles", profilesValue); ok {
+			findings = append(findings, finding)
+		}
+	}
+	findings = append(findings, validateMachineField(source, configuration["machine"])...)
 
 	findings = append(findings, validateEnvironmentField(source, configuration["environment"])...)
 	findings = append(findings, validateMCPField(source, configuration["mcp"])...)
@@ -262,6 +255,42 @@ func validateSchemaV1Fields(
 	findings = append(findings, validateRulesField(source, configuration["rules"])...)
 	findings = append(findings, validateSecretsField(source, configuration["secrets"])...)
 	findings = append(findings, validateClientsField(source, configuration["clients"])...)
+
+	return findings
+}
+
+func validateMachineField(source string, value any) []ValidationFinding {
+	if value == nil {
+		return nil
+	}
+	table, ok := value.(map[string]any)
+	if !ok {
+		return []ValidationFinding{{
+			Source:   source,
+			Path:     "machine",
+			Code:     validationCodeInvalidType,
+			Severity: "error",
+			Message:  "machine must be a table",
+		}}
+	}
+
+	findings := []ValidationFinding{}
+	allowed := map[string]bool{"id": true}
+	for _, key := range mapKeys(table) {
+		if !allowed[key] {
+			findings = append(findings, ValidationFinding{
+				Source:   source,
+				Path:     "machine." + key,
+				Code:     validationCodeUnknownField,
+				Severity: "error",
+				Message:  "unknown field in machine table",
+			})
+		}
+	}
+
+	if finding, ok := validateOptionalStringValue(source, "machine.id", table["id"]); ok {
+		findings = append(findings, finding)
+	}
 
 	return findings
 }

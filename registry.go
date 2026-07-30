@@ -660,25 +660,13 @@ func parseRegistryFrontMatter(kind, identifier, sourcePath, content string) (reg
 }
 
 func collectEnabledRegistryIdentifiers(kind string, sources []loadedConfigSource, resolved map[string]any) ([]string, error) {
-	global := []string{}
-	project := []string{}
-	for index, source := range sources {
+	ordered := []string{}
+	for _, source := range sources {
 		if source.ParseError != nil {
 			continue
 		}
-		ids := enabledIdentifiersFromConfig(kind, source.Config)
-		if index == 0 {
-			global = append(global, ids...)
-		} else {
-			project = append(project, ids...)
-		}
+		ordered = append(ordered, enabledIdentifiersFromConfig(kind, source.Config)...)
 	}
-
-	profile := profileEnabledIdentifiers(kind, resolved)
-
-	ordered := append([]string{}, global...)
-	ordered = append(ordered, profile...)
-	ordered = append(ordered, project...)
 	if len(ordered) == 0 {
 		ordered = enabledIdentifiersFromConfig(kind, resolved)
 	}
@@ -717,22 +705,6 @@ func enabledIdentifiersFromConfig(kind string, config map[string]any) []string {
 		result = append(result, text)
 	}
 	return result
-}
-
-func profileEnabledIdentifiers(kind string, resolved map[string]any) []string {
-	profileName, ok := resolved["profile"].(string)
-	if !ok || strings.TrimSpace(profileName) == "" {
-		return nil
-	}
-	profiles, ok := resolved["profiles"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	profile, ok := profiles[profileName].(map[string]any)
-	if !ok {
-		return nil
-	}
-	return enabledIdentifiersFromConfig(kind, profile)
 }
 
 func composeRegistryDocument(kind string, index registryIndex, identifiers []string) (string, error) {

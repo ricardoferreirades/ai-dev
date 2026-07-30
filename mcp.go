@@ -993,17 +993,19 @@ func mcpServerScopes(sources []loadedConfigSource) map[string]string {
 	inGlobal := map[string]bool{}
 	inProject := map[string]bool{}
 
-	for index, source := range sources {
+	for _, source := range sources {
 		if source.ParseError != nil {
 			continue
 		}
 
 		names := mcpServerNamesFromSource(source.Config)
+		isProjectSource := source.SourceType == sourceTypeProject ||
+			(source.SourceType == sourceTypeProfile && source.SelectedBy == sourceTypeProject)
 		for _, name := range names {
-			if index == 0 {
-				inGlobal[name] = true
-			} else {
+			if isProjectSource {
 				inProject[name] = true
+			} else {
+				inGlobal[name] = true
 			}
 		}
 	}
