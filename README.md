@@ -52,13 +52,27 @@ ai-dev version
 To install a specific release or into a specific directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.0 sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.2 sh
 curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires
 Go. Release archives are built automatically for macOS and Linux on `amd64`
 and `arm64` version tags.
+
+To uninstall the binary while preserving configuration:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/uninstall.sh | sh
+```
+
+The uninstall script checks the standard Go install locations (`GOBIN` and
+`GOPATH/bin`) so older Go-installed copies are removed too. To also remove
+ai-dev configuration, data, and state, use the explicit purge option:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/uninstall.sh | sh -s -- --purge
+```
 
 ## Commands
 
