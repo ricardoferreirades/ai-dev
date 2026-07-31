@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -123,6 +124,67 @@ func TestAINormalizeRemoteDefinitionConvertsConventionsToManagedFiles(t *testing
 	}
 	if got := payload["skill_files"].([]any)[0]; got != "skills/ai-dev/SKILL.md" {
 		t.Fatalf("unexpected skill path: %v", got)
+	}
+}
+
+func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
+	repo := t.TempDir()
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	stateHome := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(configHome, "projects"), 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(configHome, "prompts"), 0o755); err != nil {
+		t.Fatalf("create prompts dir: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(configHome, "rules"), 0o755); err != nil {
+		t.Fatalf("create rules dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "prompts", "intro.md"), []byte("# Prompt\n"), 0o600); err != nil {
+		t.Fatalf("seed prompts registry: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "rules", "safe.md"), []byte("# Rule\n"), 0o600); err != nil {
+		t.Fatalf("seed rules registry: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "global.toml"), []byte("schema = \"v1\"\n"), 0o600); err != nil {
+		t.Fatalf("write global config: %v", err)
+	}
+	if err := exec.Command("git", "init", repo).Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# repo\n"), 0o600); err != nil {
+		t.Fatalf("seed repo readme: %v", err)
+	}
+	if err := exec.Command("git", "-C", repo, "add", ".").Run(); err != nil {
+		t.Fatalf("git add: %v", err)
+	}
+	if err := exec.Command("git", "-C", repo, "commit", "-m", "init", "--allow-empty").Run(); err != nil {
+		t.Fatalf("git commit: %v", err)
+	}
+
+	paths := Paths{ConfigHome: configHome, DataHome: dataHome, StateHome: stateHome}
+	info, err := resolveProjectInfo(paths)
+	if err != nil {
+		t.Fatalf("resolve project info: %v", err)
+	}
+	if info.ProjectRoot == "" {
+		t.Fatalf("expected a project root")
+	}
+	plan, err := aiBuildClientBundle(paths, clientNameCodex, "user")
+	if err != nil {
+		t.Fatalf("build client bundle: %v", err)
+	}
+	found := false
+	for _, path := range plan.Paths {
+		if strings.HasSuffix(path, filepath.Join("library", "default", "ai-client-structure.snapshot.md")) {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("snapshot file was not included in bundle paths: %+v", plan.Paths)
 	}
 }
 

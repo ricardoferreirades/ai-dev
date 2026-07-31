@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.14.8"
+const version = "0.14.9"
 
 type Paths struct {
 	ConfigHome string
@@ -256,6 +256,7 @@ func usage() {
 	ai-dev client validate <client> [--scope <scope>] [--format <format>] [--strict] [--json] [--policy-mode disabled|advisory|enforced]
 	ai-dev client generate <client> [--json] [--format <format>] [--scope <scope>] [--include-disabled] [--resolve-secrets] [--with-metadata] [--strict] [--output <path>] [--force] [--policy-mode disabled|advisory|enforced]
 	ai-dev client compare [--json]
+ai-dev client snapshot [--output <path>]
 	ai-dev prompt list [--json]
 	ai-dev prompt show <identifier> [--json]
 	ai-dev prompt search <query> [--json]

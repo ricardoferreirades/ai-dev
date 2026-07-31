@@ -1348,6 +1348,11 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 		return aiBundlePlan{}, err
 	}
 
+	snapshotFiles := []string{"library/default/ai-client-structure.snapshot.md"}
+	if err := addFiles(snapshotFiles, buildClientStructureSnapshot()); err != nil {
+		return aiBundlePlan{}, err
+	}
+
 	pathsList := make([]string, 0, len(files))
 	for path := range files {
 		pathsList = append(pathsList, path)

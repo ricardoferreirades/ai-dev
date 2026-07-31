@@ -75,7 +75,7 @@ To install a specific release or into a specific directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh \
-  | AI_DEV_VERSION=0.14.8 AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
+  | AI_DEV_VERSION=0.14.9 AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires

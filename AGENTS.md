@@ -97,7 +97,7 @@ Completed checkpoints:
 
 Current version:
 
-- `0.5.0`
+- `0.14.9`
 
 ## Current task
 

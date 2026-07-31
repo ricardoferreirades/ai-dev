@@ -228,6 +228,44 @@ func TestClientGenerateAndValidateSafetyModes(t *testing.T) {
 	}
 }
 
+func TestClientSnapshotCommand(t *testing.T) {
+	workspace, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get workspace: %v", err)
+	}
+	binary := buildValidationTestBinary(t, workspace)
+
+	repo := t.TempDir()
+	configHome := t.TempDir()
+	dataHome := t.TempDir()
+	stateHome := t.TempDir()
+
+	if err := os.MkdirAll(filepath.Join(configHome, "projects"), 0o755); err != nil {
+		t.Fatalf("create projects dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(configHome, "global.toml"), []byte("schema = \"v1\"\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cmd := exec.Command(binary, "client", "snapshot")
+	cmd.Dir = repo
+	cmd.Env = isolatedValidationEnvironment(configHome, dataHome, stateHome)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("client snapshot failed: %v\n%s", err, output)
+	}
+	text := string(output)
+	if !strings.Contains(text, "# AI client structure snapshot") {
+		t.Fatalf("snapshot header missing: %s", text)
+	}
+	if !strings.Contains(text, ".codex/library/default/ai-client-structure.snapshot.md") {
+		t.Fatalf("library default snapshot path missing: %s", text)
+	}
+	if !strings.Contains(text, "### codex") || !strings.Contains(text, ".claude/rules.md") {
+		t.Fatalf("client hierarchy markers missing: %s", text)
+	}
+}
+
 func TestClientGenerateOutputFileSafety(t *testing.T) {
 	workspace, err := os.Getwd()
 	if err != nil {
