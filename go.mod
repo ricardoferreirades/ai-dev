@@ -1,4 +1,4 @@
-module ai-dev
+module github.com/ricardoferreirades/ai-dev
 
 go 1.25.0
 

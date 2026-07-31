@@ -25,6 +25,15 @@ CGO_ENABLED=0 go build -trimpath -o ./bin/ai-dev .
 
 ## Installing
 
+As a Go module, the CLI can also be installed directly with Go:
+
+```sh
+go install github.com/ricardoferreirades/ai-dev@latest
+```
+
+Go installs the executable into `GOBIN` or `GOPATH/bin`; make sure that
+directory is on `PATH`.
+
 macOS and Linux users can install the latest published binary with:
 
 ```sh
