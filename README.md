@@ -82,6 +82,174 @@ For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires
 Go. Release archives are built automatically for macOS and Linux on `amd64`
 and `arm64` version tags.
 
+## Getting started
+
+Follow these steps when setting up ai-dev on a new machine and project.
+
+### 1. Install and verify ai-dev
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh \
+  | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
+export PATH="$HOME/.local/bin:$PATH"
+ai-dev version
+ai-dev doctor
+```
+
+Add the `PATH` export to `~/.bashrc` or `~/.zshrc` as described above so it is
+available in future shells.
+
+### 2. Configure the optional remote AI provider
+
+Initialize the ai-dev provider configuration:
+
+```sh
+ai-dev ai env init
+```
+
+Edit this file and add the provider key you want to use:
+
+```text
+~/.config/ai-dev/ai-dev.env
+```
+
+Supported providers include `openrouter`, `openai`, and `gemini`. If no key is
+configured or the provider is unavailable, ai-dev uses its cached local client
+definitions and instructions.
+
+### 3. Enter the project
+
+```sh
+cd /path/to/project
+ai-dev info
+ai-dev project-id
+```
+
+ai-dev identifies the project from its Git root and worktree metadata. The
+configuration remains outside the project repository.
+
+### 4. Create an optional project configuration
+
+Find the project overlay path:
+
+```sh
+ai-dev config-path
+```
+
+Create or edit the printed file if this project needs settings that should not
+apply globally. A minimal overlay is:
+
+```toml
+schema = "v1"
+
+[environment]
+APP_ENV = "development"
+```
+
+Global configuration is stored in `~/.config/ai-dev/global.toml`; project
+overlays are stored in `~/.config/ai-dev/projects/`.
+
+### 5. Import shared AI definitions
+
+Preview a local directory or repository first:
+
+```sh
+ai-dev import /path/to/shared-ai-config --name team --dry-run
+```
+
+Then import it:
+
+```sh
+ai-dev import /path/to/shared-ai-config --name team
+```
+
+Or import directly from Git:
+
+```sh
+ai-dev import https://github.com/example/shared-ai-config.git --name team
+```
+
+To exclude categories:
+
+```sh
+ai-dev import /path/to/shared-ai-config --name team \
+  --ignore mcps --ignore prompts
+```
+
+Prompts and rules are registered in their canonical ai-dev registries.
+Instructions, agents, skills, MCP files, and client-specific files are kept
+separately under `~/.config/ai-dev/imports/<name>/`.
+
+### 6. Validate the project context
+
+```sh
+ai-dev validate
+ai-dev config
+ai-dev doctor
+```
+
+Resolve the project environment when needed:
+
+```sh
+eval "$(ai-dev env --shell sh)"
+```
+
+### 7. Synchronize an AI client
+
+Generate user-level Codex configuration:
+
+```sh
+ai-dev ai sync codex --target user --force
+```
+
+Other clients use the same command:
+
+```sh
+ai-dev ai sync claude --target user --force
+ai-dev ai sync copilot --target user --force
+```
+
+Use `--dry-run` to preview generated files:
+
+```sh
+ai-dev ai sync codex --target user --force --dry-run
+```
+
+The `user` target writes to the client’s user configuration directory, such as
+`~/.codex` or `~/.claude`. It avoids adding client-specific directories to the
+project. Use `--target project` only when project-local generated files are
+intended.
+
+### 8. Inspect the generated context
+
+```sh
+ai-dev ai context --client codex
+ai-dev prompt list
+ai-dev rule list
+ai-dev mcp list
+```
+
+At this point, start Codex or the selected AI client normally. The generated
+native client files contain the resolved ai-dev instructions, prompts, rules,
+agents, skills, and MCP configuration.
+
+### Daily project workflow
+
+When entering an existing project:
+
+```sh
+cd /path/to/project
+ai-dev validate
+eval "$(ai-dev env --shell sh)"
+ai-dev ai sync codex --target user --force
+```
+
+Re-import shared definitions only when they change:
+
+```sh
+ai-dev import /path/to/shared-ai-config --name team --force
+```
+
 To uninstall the binary while preserving configuration:
 
 ```sh
