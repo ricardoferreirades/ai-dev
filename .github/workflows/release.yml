@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build release archives
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - os: darwin
+            arch: amd64
+          - os: darwin
+            arch: arm64
+          - os: linux
+            arch: amd64
+          - os: linux
+            arch: arm64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Build archive
+        env:
+          GOOS: ${{ matrix.os }}
+          GOARCH: ${{ matrix.arch }}
+          CGO_ENABLED: 0
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          archive="ai-dev_${version}_${GOOS}_${GOARCH}"
+          mkdir -p "dist/$archive"
+          go build -trimpath -o "dist/$archive/ai-dev" .
+          tar -czf "dist/$archive.tar.gz" -C "dist/$archive" ai-dev
+
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-dev-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/*.tar.gz
+
+  publish:
+    name: Publish GitHub release
+    needs: release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: ai-dev-*
+          merge-multiple: true
+
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum *.tar.gz > checksums.txt
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.tar.gz
+            dist/checksums.txt

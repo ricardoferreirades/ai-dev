@@ -23,6 +23,34 @@ above are tracked here.
 CGO_ENABLED=0 go build -trimpath -o ./bin/ai-dev .
 ```
 
+## Installing
+
+macOS and Linux users can install the latest published binary with:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | sh
+```
+
+The installer detects the operating system and CPU architecture, installs
+`ai-dev` into the first writable directory already on `PATH`, and otherwise
+uses `~/.local/bin` and adds it to the current shell's startup file. Open a
+new shell, or run the printed `export PATH=...` command, then verify it with:
+
+```sh
+ai-dev version
+```
+
+To install a specific release or into a specific directory:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.0 sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
+```
+
+For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires
+Go. Release archives are built automatically for macOS and Linux on `amd64`
+and `arm64` version tags.
+
 ## Commands
 
 ```text
