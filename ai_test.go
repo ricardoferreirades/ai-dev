@@ -127,7 +127,7 @@ func TestAINormalizeRemoteDefinitionConvertsConventionsToManagedFiles(t *testing
 	}
 }
 
-func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
+func TestAIBuildClientBundleRespectsEmbeddedSnapshot(t *testing.T) {
 	repo := t.TempDir()
 	configHome := t.TempDir()
 	dataHome := t.TempDir()
@@ -154,6 +154,9 @@ func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
 	if err := exec.Command("git", "init", repo).Run(); err != nil {
 		t.Fatalf("git init: %v", err)
 	}
+	if err := os.MkdirAll(filepath.Join(repo, "snapshots"), 0o755); err != nil {
+		t.Fatalf("create snapshots dir: %v", err)
+	}
 	if err := os.WriteFile(filepath.Join(repo, "README.md"), []byte("# repo\n"), 0o600); err != nil {
 		t.Fatalf("seed repo readme: %v", err)
 	}
@@ -165,6 +168,13 @@ func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
 	}
 
 	paths := Paths{ConfigHome: configHome, DataHome: dataHome, StateHome: stateHome}
+	snapshot, err := aiLoadSnapshotDefinition(clientNameCodex)
+	if err != nil {
+		t.Fatalf("load embedded snapshot: %v", err)
+	}
+	if err := aiCacheSnapshot(paths, clientNameCodex, snapshot); err != nil {
+		t.Fatalf("seed snapshot cache: %v", err)
+	}
 	info, err := resolveProjectInfo(paths)
 	if err != nil {
 		t.Fatalf("resolve project info: %v", err)
@@ -176,15 +186,16 @@ func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build client bundle: %v", err)
 	}
-	found := false
 	for _, path := range plan.Paths {
-		if strings.HasSuffix(path, filepath.Join("config", "ai-client-structure.snapshot.md")) {
-			found = true
-			break
+		if strings.Contains(path, "ai-client-structure.snapshot.md") {
+			t.Fatalf("snapshot must be cached by ai-dev, not written into the client hierarchy: %+v", plan.Paths)
+		}
+		if strings.HasSuffix(path, "config.toml") {
+			t.Fatalf("Codex config.toml must not receive the JSON MCP payload: %+v", plan.Paths)
 		}
 	}
-	if !found {
-		t.Fatalf("snapshot file was not included in bundle paths: %+v", plan.Paths)
+	if len(plan.Directories) == 0 {
+		t.Fatal("expected the snapshot directory skeleton")
 	}
 }
 
@@ -197,5 +208,47 @@ func TestAIExpandNativeFilesConvertsCodexDirectories(t *testing.T) {
 	paths := aiLayoutStringSlice(layout, "prompt_files")
 	if len(paths) != 1 || paths[0] != "prompts" {
 		t.Fatalf("TOML string arrays were not read: %+v", paths)
+	}
+}
+
+func TestAICodexMCPConfigProducesTOMLAndPreservesSettings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, []byte("model = \"gpt-5\"\n"), 0o600); err != nil {
+		t.Fatalf("write existing config: %v", err)
+	}
+	payload := map[string]any{"servers": map[string]any{
+		"demo": map[string]any{"transport": "stdio", "command": "demo-mcp", "args": []string{"serve"}},
+	}}
+	content, err := aiCodexMCPConfig(path, payload)
+	if err != nil {
+		t.Fatalf("merge Codex MCP config: %v", err)
+	}
+	if strings.Contains(content, `"servers"`) || strings.Contains(content, "transport") {
+		t.Fatalf("Codex config contains JSON or generic transport fields:\n%s", content)
+	}
+	if !strings.Contains(content, `model = 'gpt-5'`) || !strings.Contains(content, "[mcp_servers.demo]") || !strings.Contains(content, `command = 'demo-mcp'`) {
+		t.Fatalf("Codex TOML did not preserve settings and add MCP server:\n%s", content)
+	}
+}
+
+func TestAIMCPHasServersRejectsEmptyRegistry(t *testing.T) {
+	if aiMCPHasServers(map[string]any{"servers": map[string]any{}}) {
+		t.Fatal("empty MCP registry must not create a native client config file")
+	}
+}
+
+func TestAIMCPHasServersAcceptsResolvedRegistry(t *testing.T) {
+	payload := map[string]any{"servers": map[string]MCPServer{
+		"demo": {Name: "demo", Transport: "stdio", Command: "demo-mcp", Enabled: true},
+	}}
+	if !aiMCPHasServers(payload) {
+		t.Fatal("resolved MCP registry must have native parity")
+	}
+	content, err := aiCodexMCPConfig(filepath.Join(t.TempDir(), "config.toml"), payload)
+	if err != nil {
+		t.Fatalf("generate Codex config: %v", err)
+	}
+	if !strings.Contains(content, "[mcp_servers.demo]") || !strings.Contains(content, `command = 'demo-mcp'`) {
+		t.Fatalf("resolved MCP server was not translated to Codex TOML:\n%s", content)
 	}
 }

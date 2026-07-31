@@ -255,13 +255,13 @@ func TestClientSnapshotCommand(t *testing.T) {
 		t.Fatalf("client snapshot failed: %v\n%s", err, output)
 	}
 	text := string(output)
-	if !strings.Contains(text, "# AI client structure snapshot") {
+	if !strings.Contains(text, "# AI client structure snapshots") {
 		t.Fatalf("snapshot header missing: %s", text)
 	}
-	if !strings.Contains(text, ".codex/config/ai-client-structure.snapshot.md") {
-		t.Fatalf("library default snapshot path missing: %s", text)
+	if !strings.Contains(text, "snapshots/codex-snapshot.md") || !strings.Contains(text, "snapshots/claude-snapshot.md") {
+		t.Fatalf("repository snapshot paths missing: %s", text)
 	}
-	if !strings.Contains(text, "### codex") || !strings.Contains(text, ".claude/rules.md") {
+	if !strings.Contains(text, "~/.codex/") || !strings.Contains(text, "~/.claude/") {
 		t.Fatalf("client hierarchy markers missing: %s", text)
 	}
 }

@@ -961,61 +961,24 @@ func clientSnapshotCommand(paths Paths, arguments []string) error {
 
 func buildClientStructureSnapshot() string {
 	var builder strings.Builder
-	builder.WriteString("# AI client structure snapshot\n\n")
-	builder.WriteString("This file is the source of truth for the current client-facing structure.\n")
-	builder.WriteString("It keeps the nearest possible hierarchy between AI clients and their target files.\n\n")
-	builder.WriteString("## Version\n\n")
-	builder.WriteString("1\n\n")
-	builder.WriteString("## Sync rules\n\n")
-	builder.WriteString("- Preserve hierarchy before transforming content.\n")
-	builder.WriteString("- Prefer single-file to single-file mappings when both clients support them.\n")
-	builder.WriteString("- Keep target files in the target client’s native folder.\n")
-	builder.WriteString("- Update this snapshot first when structure changes, then sync.\n\n")
-	builder.WriteString("## File kind meanings\n\n")
-	builder.WriteString("- `instructions`: user-facing operating guidance for instruction-oriented clients.\n")
-	builder.WriteString("- `rules`: policy and constraint files for rule-oriented clients.\n")
-	builder.WriteString("- `prompts`: reusable task templates and prompt assets.\n")
-	builder.WriteString("- `agents`: role definitions and delegated behaviors.\n")
-	builder.WriteString("- `mcp`: MCP server and transport definitions.\n")
-	builder.WriteString("- `context`: resolved project context exported for the client.\n\n")
-	builder.WriteString("## Clients\n\n")
-	clients := []struct {
-		name      string
-		folder    string
-		hierarchy string
-		files     []struct{ path, meaning string }
-	}{
-		{name: "copilot", folder: ".github", hierarchy: "single-file guidance", files: []struct{ path, meaning string }{{".github/copilot-instructions.md", "repository guidance for GitHub Copilot"}}},
-		{name: "claude", folder: ".claude", hierarchy: "single-file rules", files: []struct{ path, meaning string }{{".claude/rules.md", "repository rules for Claude"}}},
-		{name: "codex", folder: ".codex", hierarchy: "single-file context plus snapshot", files: []struct{ path, meaning string }{{".codex/ai-dev-context.md", "resolved ai-dev project context used by Codex"}, {".codex/config/ai-client-structure.snapshot.md", "canonical snapshot for cross-client translation and sync"}}},
-	}
-	for _, client := range clients {
-		builder.WriteString("### ")
-		builder.WriteString(client.name)
-		builder.WriteString("\n\n")
-		builder.WriteString("Folder: `")
-		builder.WriteString(client.folder)
+	builder.WriteString("# AI client structure snapshots\n\n")
+	builder.WriteString("These embedded Markdown files from `snapshots/` are the sync source of truth.\n\n")
+	for _, clientName := range []string{"copilot", "claude", "codex"} {
+		snapshot, err := aiLoadSnapshotDefinition(clientName)
+		if err != nil {
+			continue
+		}
+		builder.WriteString("## ")
+		builder.WriteString(clientName)
+		builder.WriteString("\n\nSource: `")
+		builder.WriteString(snapshot.Path)
 		builder.WriteString("`\n\n")
-		builder.WriteString("Hierarchy: ")
-		builder.WriteString(client.hierarchy)
-		builder.WriteString("\n\n")
-		builder.WriteString("Files:\n\n")
-		for _, file := range client.files {
-			builder.WriteString("- `")
-			builder.WriteString(file.path)
-			builder.WriteString("` — ")
-			builder.WriteString(file.meaning)
+		builder.WriteString(snapshot.Content)
+		if !strings.HasSuffix(snapshot.Content, "\n") {
 			builder.WriteString("\n")
 		}
 		builder.WriteString("\n")
 	}
-	builder.WriteString("## Cross-client translation scenarios\n\n")
-	builder.WriteString("### Single file to single file\n\n")
-	builder.WriteString("Use this when the source client has one top-level guidance file and the target client expects one top-level guidance file.\n\n")
-	builder.WriteString("### Folder tree to single file\n\n")
-	builder.WriteString("Flatten only what is necessary and keep the target file as close as possible to the source hierarchy.\n\n")
-	builder.WriteString("### Folder tree to folder tree\n\n")
-	builder.WriteString("Preserve the relative hierarchy of the source tree inside the target client’s folder.\n")
 	return builder.String()
 }
 

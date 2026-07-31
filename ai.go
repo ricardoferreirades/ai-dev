@@ -377,9 +377,23 @@ func aiSyncCommand(paths Paths, arguments []string) error {
 	previousImportName := activeImportName
 	activeImportName = importName
 	defer func() { activeImportName = previousImportName }()
+	snapshot, err := aiResolveSnapshot(paths, clientName)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("snapshot_source=%s snapshot=%s\n", snapshot.Source, snapshot.Path)
+	if snapshot.Warning != "" {
+		fmt.Printf("snapshot_warning=%s\n", snapshot.Warning)
+	}
+	if err := aiCacheSnapshot(paths, clientName, snapshot); err != nil {
+		return err
+	}
 
 	remote, remoteErr := aiProbeRemoteModel(paths, clientName, target)
 	if remoteErr == nil {
+		if err := aiValidateSnapshotLayout(snapshot, remote.Parsed, targetScope(target)); err != nil {
+			return err
+		}
 		fmt.Printf("ai_remote=%s provider=%s model=%s\n", remote.Status, remote.Provider, remote.Model)
 		if updateErr := aiWriteClientRemoteResult(paths, clientName, remote); updateErr != nil {
 			return updateErr
@@ -424,13 +438,23 @@ func aiSyncCommand(paths Paths, arguments []string) error {
 	}
 
 	if dryRun {
+		fmt.Printf("snapshot=%s\n", snapshot.Path)
+		fmt.Printf("phase=directories count=%d\n", len(plan.Directories))
+		for _, directory := range plan.Directories {
+			fmt.Printf("mkdir=%s\n", directory)
+		}
+		fmt.Printf("phase=files parity=matched count=%d\n", len(plan.Paths))
 		for _, path := range plan.Paths {
 			fmt.Printf("write=%s\n", path)
 		}
 		return nil
 	}
 
+	fmt.Printf("snapshot=%s\n", snapshot.Path)
 	if err := aiWriteClientBundle(plan, force); err != nil {
+		return err
+	}
+	if err := aiCacheSnapshot(paths, clientName, snapshot); err != nil {
 		return err
 	}
 
@@ -1228,6 +1252,7 @@ func selectClientDestination(destinations []ClientDestination, target string) st
 
 type aiBundlePlan struct {
 	Root         string
+	Directories  []string
 	Paths        []string
 	Files        map[string]string
 	ManifestPath string
@@ -1248,6 +1273,7 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 		return aiBundlePlan{}, err
 	}
 	layout := map[string]any{}
+	usingDefaultLayout := false
 	if definition, loadErr := aiLoadClientDefinition(paths, clientName); loadErr == nil {
 		if configured, ok := definition["layout"].(map[string]any); ok {
 			layout = configured
@@ -1259,6 +1285,23 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 				}
 			}
 		}
+	}
+	if len(layout) == 0 {
+		usingDefaultLayout = true
+		layout = aiDefaultSnapshotLayout(clientName, target)
+		if configuredRoot, ok := layout["root"].(string); ok {
+			root, err = aiResolveLayoutRoot(info, configuredRoot, target)
+			if err != nil {
+				return aiBundlePlan{}, err
+			}
+		}
+	}
+	snapshot, err := aiResolveSnapshot(paths, clientName)
+	if err != nil {
+		return aiBundlePlan{}, err
+	}
+	if err := aiValidateSnapshotLayout(snapshot, layout, targetScope(target)); err != nil {
+		return aiBundlePlan{}, err
 	}
 
 	files := map[string]string{}
@@ -1340,17 +1383,40 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 			mcpFiles = []string{"mcp.json"}
 		}
 	}
-	mcpContent, err := json.MarshalIndent(payload["mcp"], "", "  ")
-	if err != nil {
-		return aiBundlePlan{}, err
-	}
-	if err := addFiles(mcpFiles, string(mcpContent)+"\n"); err != nil {
-		return aiBundlePlan{}, err
+	if aiMCPHasServers(payload["mcp"]) {
+		if clientName == clientNameCodex {
+			for _, relative := range mcpFiles {
+				path, pathErr := aiLayoutPath(root, relative)
+				if pathErr != nil {
+					return aiBundlePlan{}, pathErr
+				}
+				content, contentErr := aiCodexMCPConfig(path, payload["mcp"])
+				if contentErr != nil {
+					return aiBundlePlan{}, contentErr
+				}
+				files[path] = content
+			}
+		} else {
+			mcpContent, marshalErr := json.MarshalIndent(payload["mcp"], "", "  ")
+			if marshalErr != nil {
+				return aiBundlePlan{}, marshalErr
+			}
+			if err := addFiles(mcpFiles, string(mcpContent)+"\n"); err != nil {
+				return aiBundlePlan{}, err
+			}
+		}
 	}
 
-	snapshotFiles := []string{"config/ai-client-structure.snapshot.md"}
-	if err := addFiles(snapshotFiles, buildClientStructureSnapshot()); err != nil {
-		return aiBundlePlan{}, err
+	if usingDefaultLayout && clientName == clientNameCodex {
+		skillRoot := filepath.Join(info.ProjectRoot, ".agents")
+		if target == "user" {
+			home, homeErr := os.UserHomeDir()
+			if homeErr != nil {
+				return aiBundlePlan{}, homeErr
+			}
+			skillRoot = filepath.Join(home, ".agents")
+		}
+		files[filepath.Join(skillRoot, "skills", "ai-dev", "SKILL.md")] = aiBundleSkillDocument(paths, payload)
 	}
 
 	pathsList := make([]string, 0, len(files))
@@ -1359,12 +1425,147 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 	}
 	sort.Strings(pathsList)
 
+	if err := aiCheckSnapshotAlignment(snapshot, targetScope(target), root, pathsList); err != nil {
+		return aiBundlePlan{}, err
+	}
+
 	return aiBundlePlan{
 		Root:         root,
+		Directories:  aiSnapshotPlanDirectories(snapshot, targetScope(target), info.ProjectRoot, pathsList),
 		Paths:        pathsList,
 		Files:        files,
 		ManifestPath: filepath.Join(paths.ConfigHome, "clients", clientName, "managed-files.json"),
 	}, nil
+}
+
+func aiDefaultSnapshotLayout(clientName, target string) map[string]any {
+	project := target == "project"
+	switch clientName {
+	case clientNameCodex:
+		if project {
+			return map[string]any{
+				"root": "project", "instruction_files": []string{"AGENTS.md"},
+				"mcp_files": []string{filepath.Join(".codex", "config.toml")},
+			}
+		}
+		return map[string]any{
+			"root": "~/.codex", "instruction_files": []string{"AGENTS.md"},
+			"prompt_files": []string{filepath.Join("prompts", "ai-dev.md")},
+			"mcp_files":    []string{"config.toml"},
+		}
+	case clientNameClaude:
+		if project {
+			return map[string]any{
+				"root": "project", "instruction_files": []string{"CLAUDE.md"},
+				"rule_files":  []string{filepath.Join(".claude", "rules", "ai-dev.md")},
+				"agent_files": []string{filepath.Join(".claude", "agents", "ai-dev.md")},
+				"skill_files": []string{filepath.Join(".claude", "skills", "ai-dev", "SKILL.md")},
+				"mcp_files":   []string{".mcp.json"},
+			}
+		}
+		return map[string]any{
+			"root": "~/.claude", "instruction_files": []string{"CLAUDE.md"},
+			"prompt_files": []string{filepath.Join("commands", "ai-dev.md")},
+			"rule_files":   []string{filepath.Join("rules", "ai-dev.md")},
+			"agent_files":  []string{filepath.Join("agents", "ai-dev.md")},
+			"skill_files":  []string{filepath.Join("skills", "ai-dev", "SKILL.md")},
+		}
+	case clientNameVSCode, "copilot":
+		if project {
+			return map[string]any{"root": "project", "instruction_files": []string{filepath.Join(".github", "copilot-instructions.md")}}
+		}
+		return map[string]any{
+			"root": "~/.copilot", "instruction_files": []string{"copilot-instructions.md", filepath.Join("instructions", "ai-dev.instructions.md")},
+			"agent_files": []string{filepath.Join("agents", "ai-dev.agent.md")},
+			"skill_files": []string{filepath.Join("skills", "ai-dev", "SKILL.md")},
+			"mcp_files":   []string{"mcp-config.json"},
+		}
+	default:
+		return map[string]any{}
+	}
+}
+
+func aiMCPHasServers(value any) bool {
+	return len(aiMCPServerMaps(value)) > 0
+}
+
+func aiMCPServerMaps(value any) map[string]map[string]any {
+	result := map[string]map[string]any{}
+	payload, ok := value.(map[string]any)
+	if !ok {
+		return result
+	}
+	switch servers := payload["servers"].(type) {
+	case map[string]any:
+		for name, raw := range servers {
+			if server, ok := raw.(map[string]any); ok {
+				result[name] = server
+			}
+		}
+	case map[string]MCPServer:
+		for name, server := range servers {
+			native := map[string]any{}
+			if server.Command != "" {
+				native["command"] = server.Command
+			}
+			if len(server.Args) > 0 {
+				native["args"] = server.Args
+			}
+			if server.Cwd != "" {
+				native["cwd"] = server.Cwd
+			}
+			if server.URL != "" {
+				native["url"] = server.URL
+			}
+			if len(server.Headers) > 0 {
+				native["http_headers"] = server.Headers
+			}
+			if len(server.Environment) > 0 {
+				native["env"] = server.Environment
+			}
+			if !server.Enabled {
+				native["enabled"] = false
+			}
+			result[name] = native
+		}
+	}
+	return result
+}
+
+func aiCodexMCPConfig(path string, value any) (string, error) {
+	configuration := map[string]any{}
+	if fileExists(path) {
+		loaded, err := readTOML(path)
+		if err != nil {
+			return "", fmt.Errorf("existing Codex config is not valid TOML: %s: %w", path, err)
+		}
+		configuration = loaded
+	}
+	servers := aiMCPServerMaps(value)
+	mcpServers, _ := configuration["mcp_servers"].(map[string]any)
+	if mcpServers == nil {
+		mcpServers = map[string]any{}
+	}
+	for name, server := range servers {
+		native := map[string]any{}
+		for key, item := range server {
+			switch key {
+			case "transport":
+				continue
+			case "environment":
+				native["env"] = item
+			default:
+				native[key] = item
+			}
+		}
+		mcpServers[name] = native
+	}
+	configuration["mcp_servers"] = mcpServers
+	content, err := toml.Marshal(configuration)
+	if err != nil {
+		return "", fmt.Errorf("encode Codex config: %w", err)
+	}
+	return string(content), nil
 }
 
 func aiLoadClientDefinition(paths Paths, clientName string) (map[string]any, error) {
@@ -1373,6 +1574,9 @@ func aiLoadClientDefinition(paths Paths, clientName string) (map[string]any, err
 
 func aiResolveLayoutRoot(info ProjectInfo, configuredRoot, target string) (string, error) {
 	configuredRoot = strings.TrimSpace(configuredRoot)
+	if target == "project" && (configuredRoot == "project" || configuredRoot == ".") {
+		return info.ProjectRoot, nil
+	}
 	if strings.HasPrefix(configuredRoot, "~/") {
 		home, err := os.UserHomeDir()
 		if err != nil {
@@ -1645,6 +1849,14 @@ func aiWriteClientBundle(plan aiBundlePlan, force bool) error {
 			}
 		}
 	}
+	fmt.Printf("phase=directories count=%d\n", len(plan.Directories))
+	for _, directory := range plan.Directories {
+		fmt.Printf("mkdir=%s\n", directory)
+		if err := os.MkdirAll(directory, 0o755); err != nil {
+			return err
+		}
+	}
+	fmt.Printf("phase=files parity=matched count=%d\n", len(plan.Paths))
 	for _, path := range plan.Paths {
 		if !force {
 			if _, err := os.Stat(path); err == nil {
@@ -1658,6 +1870,7 @@ func aiWriteClientBundle(plan aiBundlePlan, force bool) error {
 		if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 			return err
 		}
+		fmt.Printf("write=%s\n", path)
 	}
 	if plan.ManifestPath != "" {
 		if err := os.MkdirAll(filepath.Dir(plan.ManifestPath), 0o755); err != nil {
