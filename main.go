@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.14.3"
+const version = "0.14.4"
 
 type Paths struct {
 	ConfigHome string

@@ -39,6 +39,14 @@ type sourceImportReport struct {
 	ManifestPath string             `json:"manifest_path"`
 }
 
+type importedAIResource struct {
+	ImportName string `json:"import_name"`
+	SourcePath string `json:"source_path"`
+	TargetPath string `json:"target_path"`
+	Category   string `json:"category"`
+	Content    string `json:"content"`
+}
+
 func sourceImportRequested(source string) bool {
 	if info, err := os.Stat(source); err == nil {
 		return info.IsDir()
@@ -399,4 +407,80 @@ func writeImportedSourceFile(path string, content []byte) error {
 		return fmt.Errorf("write imported file %s: %w", path, err)
 	}
 	return nil
+}
+
+func loadImportedAIResources(paths Paths) (map[string][]importedAIResource, error) {
+	resources := map[string][]importedAIResource{}
+	importsRoot := filepath.Join(paths.ConfigHome, "imports")
+	if info, err := os.Stat(importsRoot); errors.Is(err, os.ErrNotExist) || (err == nil && !info.IsDir()) {
+		return resources, nil
+	}
+	err := filepath.WalkDir(importsRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() || entry.Name() != "import.json" {
+			return nil
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		var manifest struct {
+			ImportName   string             `json:"import_name"`
+			ManagedFiles []sourceImportFile `json:"managed_files"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			return fmt.Errorf("decode source import manifest %s: %w", path, err)
+		}
+		for _, file := range manifest.ManagedFiles {
+			relative, err := filepath.Rel(paths.ConfigHome, file.TargetPath)
+			if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+				return fmt.Errorf("source import target escapes configuration home: %s", file.TargetPath)
+			}
+			content, err := os.ReadFile(file.TargetPath)
+			if err != nil {
+				return fmt.Errorf("read imported resource %s: %w", file.TargetPath, err)
+			}
+			category := importedResourceCategory(file.Category)
+			resources[category] = append(resources[category], importedAIResource{
+				ImportName: manifest.ImportName,
+				SourcePath: file.SourcePath,
+				TargetPath: file.TargetPath,
+				Category:   category,
+				Content:    string(content),
+			})
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("load imported AI resources: %w", err)
+	}
+	for category := range resources {
+		sort.Slice(resources[category], func(i, j int) bool {
+			return resources[category][i].TargetPath < resources[category][j].TargetPath
+		})
+	}
+	return resources, nil
+}
+
+func importedResourceCategory(category string) string {
+	switch category {
+	case "prompt":
+		return "prompts"
+	case "rule":
+		return "rules"
+	case "instruction":
+		return "instructions"
+	case "agent":
+		return "agents"
+	case "skill":
+		return "skills"
+	case "mcp":
+		return "mcp"
+	case "client":
+		return "client"
+	default:
+		return category
+	}
 }

@@ -928,6 +928,10 @@ func buildAIContextPayload(paths Paths, clientName string) (map[string]any, erro
 			Message: fmt.Sprintf("MCP server %q field %q: %s", first.Name, first.Path, first.Message),
 		}
 	}
+	importedResources, err := loadImportedAIResources(paths)
+	if err != nil {
+		return nil, err
+	}
 
 	payload := map[string]any{
 		"project": map[string]any{
@@ -957,6 +961,7 @@ func buildAIContextPayload(paths Paths, clientName string) (map[string]any, erro
 		"mcp": map[string]any{
 			"servers": servers,
 		},
+		"resources": importedResources,
 	}
 
 	if clientName != "" {
@@ -1419,6 +1424,7 @@ func aiBundleSkillDocument(paths Paths, payload map[string]any) string {
 	builder.WriteString(aiRegistryResolvedDocument("prompts", payload["prompts"].(map[string]any), paths))
 	builder.WriteString("\n")
 	builder.WriteString(aiRegistryResolvedDocument("rules", payload["rules"].(map[string]any), paths))
+	writeImportedResourceCategory(&builder, payload, "skills", "Imported skills")
 	return builder.String()
 }
 
@@ -1430,6 +1436,7 @@ func aiBundleNativeAgentDocument(paths Paths, payload map[string]any, clientName
 	builder.WriteString(aiRegistryResolvedDocument("prompts", payload["prompts"].(map[string]any), paths))
 	builder.WriteString("\n## Resolved project rules\n\n")
 	builder.WriteString(aiRegistryResolvedDocument("rules", payload["rules"].(map[string]any), paths))
+	writeImportedResourceCategory(&builder, payload, "agents", "Imported agents")
 	return builder.String()
 }
 
@@ -1492,7 +1499,45 @@ func aiBundleAgentsDocument(paths Paths, payload map[string]any, clientName stri
 	builder.WriteString("If the AI client cannot use remote APIs, continue with the cached local definitions from ai-dev.\n")
 	builder.WriteString("Do not invent project rules when the cache and current request disagree; prefer the cache and report the mismatch.\n")
 	builder.WriteString("When online access is available, verify the client setup against official documentation and update the local cache before use.\n")
+	writeImportedResourceSections(&builder, payload)
 	return builder.String()
+}
+
+func writeImportedResourceSections(builder *strings.Builder, payload map[string]any) {
+	builder.WriteString("\n## Managed resource categories\n\n")
+	builder.WriteString("ai-dev keeps these resource types distinct and they must be applied according to the client layout:\n\n")
+	builder.WriteString("- prompts: reusable task instructions and generation templates\n")
+	builder.WriteString("- rules: project constraints and engineering policies\n")
+	builder.WriteString("- instructions: client-level operating instructions\n")
+	builder.WriteString("- agents: role-specific behavior and delegation definitions\n")
+	builder.WriteString("- skills: reusable procedural capabilities, usually represented by SKILL.md\n")
+	builder.WriteString("- mcp: MCP server definitions and transport configuration\n")
+	builder.WriteString("- client: client-specific native configuration files\n")
+	for _, category := range []string{"instructions", "agents", "skills", "mcp", "client"} {
+		writeImportedResourceCategory(builder, payload, category, "Imported "+category)
+	}
+}
+
+func writeImportedResourceCategory(builder *strings.Builder, payload map[string]any, category, title string) {
+	resources, ok := payload["resources"].(map[string][]importedAIResource)
+	if !ok || len(resources[category]) == 0 {
+		return
+	}
+	builder.WriteString("\n### ")
+	builder.WriteString(title)
+	builder.WriteString("\n\n")
+	for _, resource := range resources[category] {
+		builder.WriteString("#### ")
+		builder.WriteString(resource.ImportName)
+		builder.WriteString("/")
+		builder.WriteString(resource.SourcePath)
+		builder.WriteString("\n\n")
+		builder.WriteString(resource.Content)
+		if !strings.HasSuffix(resource.Content, "\n") {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("\n")
+	}
 }
 
 func aiSyncSourceMode(paths Paths) string {

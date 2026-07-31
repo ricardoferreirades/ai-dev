@@ -66,6 +66,15 @@ func TestImportSourceDirectoryPreservesAndRegistersAIResources(t *testing.T) {
 	if _, ok := rules.Resources["imports/team/frontend"]; !ok {
 		t.Fatalf("imported rule was not discoverable: %+v", rules.Resources)
 	}
+	resources, err := loadImportedAIResources(paths)
+	if err != nil {
+		t.Fatalf("load imported resource catalog: %v", err)
+	}
+	for _, category := range []string{"instructions", "agents", "skills", "mcp", "client"} {
+		if len(resources[category]) == 0 {
+			t.Fatalf("expected imported %s resources to remain distinct: %+v", category, resources)
+		}
+	}
 }
 
 func TestImportSourceRequiresForceForExistingFiles(t *testing.T) {
