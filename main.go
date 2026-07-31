@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.14.6"
+const version = "0.14.7"
 
 type Paths struct {
 	ConfigHome string
@@ -275,7 +275,7 @@ func usage() {
   ai-dev ai agents sync <client> [--force] [--dry-run]
   ai-dev ai context [--client codex|claude|cursor|vscode|generic] [--json]
   ai-dev ai launch <client> [--json]
-  ai-dev ai sync <client> [--target project|user|both] [--force] [--dry-run]
+	ai-dev ai sync <client> [--target project|user|both] [--import <profile>] [--force] [--dry-run]
   ai-dev ai env init [--force]
   ai-dev ai env show [--example]
   ai-dev ai credentials init <provider> [--format env|json]

@@ -344,6 +344,7 @@ func aiSyncCommand(paths Paths, arguments []string) error {
 	target := "project"
 	force := false
 	dryRun := false
+	importName := ""
 
 	for index := 1; index < len(arguments); index++ {
 		argument := arguments[index]
@@ -358,10 +359,24 @@ func aiSyncCommand(paths Paths, arguments []string) error {
 			}
 			index++
 			target = arguments[index]
+		case "--import":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--import requires a profile name"}
+			}
+			index++
+			importName = arguments[index]
 		default:
 			return UsageError{Message: fmt.Sprintf("unknown ai sync option: %s", argument)}
 		}
 	}
+	if importName != "" {
+		if err := validateSourceImportProfile(paths, importName); err != nil {
+			return err
+		}
+	}
+	previousImportName := activeImportName
+	activeImportName = importName
+	defer func() { activeImportName = previousImportName }()
 
 	remote, remoteErr := aiProbeRemoteModel(paths, clientName, target)
 	if remoteErr == nil {
@@ -909,6 +924,10 @@ func buildAIContextPayload(paths Paths, clientName string) (map[string]any, erro
 	ruleIdentifiers, err := collectEnabledRegistryIdentifiers(registryKindRule, registryModel.LoadedSource, registryModel.Resolved)
 	if err != nil {
 		return nil, err
+	}
+	if activeImportName != "" {
+		promptIdentifiers = sortedRegistryIdentifiers(promptIndex.Resources)
+		ruleIdentifiers = sortedRegistryIdentifiers(ruleIndex.Resources)
 	}
 	promptContent, err := composeRegistryDocument(registryKindPrompt, promptIndex, promptIdentifiers)
 	if err != nil {

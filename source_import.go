@@ -11,8 +11,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	toml "github.com/pelletier/go-toml/v2"
 )
 
 type sourceImportOptions struct {
@@ -48,6 +46,8 @@ type importedAIResource struct {
 	Category   string `json:"category"`
 	Content    string `json:"content"`
 }
+
+var activeImportName string
 
 func sourceImportRequested(source string) bool {
 	if info, err := os.Stat(source); err == nil {
@@ -175,6 +175,11 @@ func importSourceCommand(paths Paths, arguments []string) error {
 	}
 
 	if !options.DryRun {
+		for _, category := range []string{"prompts", "rules"} {
+			if err := os.MkdirAll(filepath.Join(paths.ConfigHome, "imports", name, category), 0o755); err != nil {
+				return fmt.Errorf("prepare imported %s profile: %w", category, err)
+			}
+		}
 		for _, file := range report.Files {
 			content, readErr := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.SourcePath)))
 			if readErr != nil {
@@ -199,9 +204,6 @@ func importSourceCommand(paths Paths, arguments []string) error {
 			return fmt.Errorf("encode source import manifest: %w", marshalErr)
 		}
 		if err := writeImportedSourceFile(manifestPath, append(content, '\n')); err != nil {
-			return err
-		}
-		if err := enableImportedRegistries(paths, report.Files); err != nil {
 			return err
 		}
 	}
@@ -245,6 +247,16 @@ func normalizeIgnoredSourceCategory(value string) (string, error) {
 	}
 }
 
+func validateSourceImportProfile(paths Paths, name string) error {
+	if _, err := os.Stat(filepath.Join(paths.ConfigHome, "imports", name, "import.json")); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return UsageError{Message: fmt.Sprintf("import profile %q does not exist", name)}
+		}
+		return fmt.Errorf("read import profile %q: %w", name, err)
+	}
+	return nil
+}
+
 func uniqueSortedStrings(values []string) []string {
 	seen := map[string]bool{}
 	result := []string{}
@@ -269,86 +281,6 @@ func sourceImportCategories(files []sourceImportFile) []string {
 	}
 	sort.Strings(categories)
 	return categories
-}
-
-func enableImportedRegistries(paths Paths, files []sourceImportFile) error {
-	for _, category := range []string{"prompts", "rules"} {
-		if err := os.MkdirAll(filepath.Join(paths.ConfigHome, category), 0o755); err != nil {
-			return fmt.Errorf("prepare %s registry for source import: %w", category, err)
-		}
-	}
-	identifiers := map[string][]string{"prompts": {}, "rules": {}}
-	for _, file := range files {
-		if file.Category != "prompt" && file.Category != "rule" {
-			continue
-		}
-		root := filepath.Join(paths.ConfigHome, file.Category+"s")
-		relative, err := filepath.Rel(root, file.TargetPath)
-		if err != nil || strings.HasPrefix(relative, "..") {
-			return fmt.Errorf("resolve imported %s identifier: %s", file.Category, file.TargetPath)
-		}
-		identifier := strings.TrimSuffix(filepath.ToSlash(relative), filepath.Ext(relative))
-		identifiers[file.Category+"s"] = append(identifiers[file.Category+"s"], identifier)
-	}
-	if len(identifiers["prompts"]) == 0 && len(identifiers["rules"]) == 0 {
-		return nil
-	}
-
-	globalPath := filepath.Join(paths.ConfigHome, "global.toml")
-	configuration := map[string]any{"schema": "v1"}
-	if data, err := os.ReadFile(globalPath); err == nil {
-		if err := toml.Unmarshal(data, &configuration); err != nil {
-			return fmt.Errorf("read global configuration for source import: %w", err)
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("read global configuration for source import: %w", err)
-	}
-	for sectionName, values := range identifiers {
-		if len(values) == 0 {
-			continue
-		}
-		section, ok := configuration[sectionName].(map[string]any)
-		if !ok {
-			section = map[string]any{}
-			configuration[sectionName] = section
-		}
-		enabled := stringValues(section["enabled"])
-		for _, value := range values {
-			if !containsSourceString(enabled, value) {
-				enabled = append(enabled, value)
-			}
-		}
-		section["enabled"] = enabled
-	}
-	content, err := toml.Marshal(configuration)
-	if err != nil {
-		return fmt.Errorf("encode global configuration for source import: %w", err)
-	}
-	return writeImportedSourceFile(globalPath, content)
-}
-
-func stringValues(value any) []string {
-	result := []string{}
-	switch values := value.(type) {
-	case []any:
-		for _, item := range values {
-			if text, ok := item.(string); ok {
-				result = append(result, text)
-			}
-		}
-	case []string:
-		result = append(result, values...)
-	}
-	return result
-}
-
-func containsSourceString(values []string, candidate string) bool {
-	for _, value := range values {
-		if value == candidate {
-			return true
-		}
-	}
-	return false
 }
 
 func resolveSourceImportRoot(source string) (string, func(), error) {
@@ -426,7 +358,7 @@ func discoverSourceImportFiles(root string, paths Paths, name string) ([]sourceI
 		destination := filepath.Join(paths.ConfigHome, "imports", name, filepath.FromSlash(relative))
 		if category == "prompt" || category == "rule" {
 			registryRelative := sourceImportRegistryRelativePath(relative, category)
-			destination = filepath.Join(paths.ConfigHome, category+"s", "imports", name, filepath.FromSlash(registryRelative))
+			destination = filepath.Join(paths.ConfigHome, "imports", name, category+"s", filepath.FromSlash(registryRelative))
 		}
 		files = append(files, sourceImportFile{SourcePath: relative, TargetPath: destination, Category: category})
 		return nil
@@ -533,6 +465,9 @@ func loadImportedAIResources(paths Paths) (map[string][]importedAIResource, erro
 		}
 		if err := json.Unmarshal(data, &manifest); err != nil {
 			return fmt.Errorf("decode source import manifest %s: %w", path, err)
+		}
+		if activeImportName != "" && manifest.ImportName != activeImportName {
+			return nil
 		}
 		for _, file := range manifest.ManagedFiles {
 			relative, err := filepath.Rel(paths.ConfigHome, file.TargetPath)

@@ -414,6 +414,9 @@ func mergePluginRegistryResources(paths Paths, kind string, index registryIndex)
 }
 
 func resolveRegistryPath(paths Paths, info ProjectInfo, configuration map[string]any, kind string) string {
+	if activeImportName != "" {
+		return filepath.Join(paths.ConfigHome, "imports", activeImportName, kind+"s")
+	}
 	defaultPath := filepath.Join(paths.ConfigHome, kind+"s")
 
 	section, ok := configuration[kind+"s"].(map[string]any)

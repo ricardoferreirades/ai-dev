@@ -75,7 +75,7 @@ To install a specific release or into a specific directory:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh \
-  | AI_DEV_VERSION=0.14.6 AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
+  | AI_DEV_VERSION=0.14.7 AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires
@@ -176,9 +176,9 @@ ai-dev import /path/to/shared-ai-config --name team \
   --ignore mcps --ignore prompts
 ```
 
-Prompts and rules are registered in their canonical ai-dev registries.
-Instructions, agents, skills, MCP files, and client-specific files are kept
-separately under `~/.config/ai-dev/imports/<name>/`.
+The import is stored as a self-contained named profile under
+`~/.config/ai-dev/imports/<name>/`, with separate `prompts/`, `rules/`,
+`instructions/`, `agents/`, `skills/`, `mcp/`, and client-resource files.
 
 ### 6. Validate the project context
 
@@ -199,26 +199,27 @@ eval "$(ai-dev env --shell sh)"
 Generate user-level Codex configuration:
 
 ```sh
-ai-dev ai sync codex --target user --force
+ai-dev ai sync codex --target user --import team --force
 ```
 
 Other clients use the same command:
 
 ```sh
-ai-dev ai sync claude --target user --force
-ai-dev ai sync copilot --target user --force
+ai-dev ai sync claude --target user --import team --force
+ai-dev ai sync copilot --target user --import team --force
 ```
 
 Use `--dry-run` to preview generated files:
 
 ```sh
-ai-dev ai sync codex --target user --force --dry-run
+ai-dev ai sync codex --target user --import team --force --dry-run
 ```
 
 The `user` target writes to the client’s user configuration directory, such as
-`~/.codex` or `~/.claude`. It avoids adding client-specific directories to the
-project. Use `--target project` only when project-local generated files are
-intended.
+`~/.codex` or `~/.claude`. The `--import team` option selects the named source
+profile and avoids mixing it with other imports or global configuration. It
+avoids adding client-specific directories to the project. Use
+`--target project` only when project-local generated files are intended.
 
 ### 8. Inspect the generated context
 
@@ -241,7 +242,7 @@ When entering an existing project:
 cd /path/to/project
 ai-dev validate
 eval "$(ai-dev env --shell sh)"
-ai-dev ai sync codex --target user --force
+ai-dev ai sync codex --target user --import team --force
 ```
 
 Re-import shared definitions only when they change:
@@ -398,9 +399,7 @@ excluded before conflict checks and are recorded in the JSON report and import
 manifest.
 
 Use `--dry-run` to inspect the files first and `--force` to replace an existing
-import. Rules and prompts are copied into the normal ai-dev registries and
-enabled automatically. Instructions, agents, skills, MCP definitions, and
-client-specific files are preserved under:
+import. The import remains self-contained under:
 
 ```text
 ~/.config/ai-dev/imports/<name>/

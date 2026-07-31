@@ -41,23 +41,21 @@ func TestImportSourceDirectoryPreservesAndRegistersAIResources(t *testing.T) {
 		t.Fatalf("import source failed: %v", err)
 	}
 
-	assertImportedFile(t, filepath.Join(paths.ConfigHome, "rules", "imports", "team", "frontend.md"), files["rules/frontend.md"])
-	assertImportedFile(t, filepath.Join(paths.ConfigHome, "prompts", "imports", "team", "page.md"), files["prompts/page.md"])
-	assertImportedFile(t, filepath.Join(paths.ConfigHome, "prompts", "imports", "team", "cli.md"), files["prompts/cli.prompt.md"])
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "rules", "frontend.md"), files["rules/frontend.md"])
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "prompts", "page.md"), files["prompts/page.md"])
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "prompts", "cli.md"), files["prompts/cli.prompt.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "instructions", "frontend.instructions.md"), files["instructions/frontend.instructions.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "agents", "frontend.agent.md"), files["agents/frontend.agent.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "skills", "next", "SKILL.md"), files["skills/next/SKILL.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", ".claude", "settings.json"), files[".claude/settings.json"])
 
-	global, err := os.ReadFile(filepath.Join(paths.ConfigHome, "global.toml"))
-	if err != nil {
-		t.Fatalf("read generated global config: %v", err)
-	}
-	globalText := string(global)
-	if !strings.Contains(globalText, "imports/team/frontend") || !strings.Contains(globalText, "imports/team/page") {
-		t.Fatalf("imported registries were not enabled:\n%s", globalText)
+	if _, err := os.Stat(filepath.Join(paths.ConfigHome, "global.toml")); !os.IsNotExist(err) {
+		t.Fatalf("source import should not create or modify global.toml")
 	}
 
+	previousImportName := activeImportName
+	activeImportName = "team"
+	defer func() { activeImportName = previousImportName }()
 	model, err := resolveRegistrySourceModel(paths)
 	if err != nil {
 		t.Fatalf("resolve imported registries: %v", err)
@@ -66,7 +64,7 @@ func TestImportSourceDirectoryPreservesAndRegistersAIResources(t *testing.T) {
 	if err != nil {
 		t.Fatalf("discover imported rules: %v", err)
 	}
-	if _, ok := rules.Resources["imports/team/frontend"]; !ok {
+	if _, ok := rules.Resources["frontend"]; !ok {
 		t.Fatalf("imported rule was not discoverable: %+v", rules.Resources)
 	}
 	resources, err := loadImportedAIResources(paths)
@@ -123,9 +121,9 @@ func TestImportSourceIgnoresSelectedCategories(t *testing.T) {
 	if err := importSourceCommand(paths, []string{source, "--name", "selective", "--ignore", "prompts", "--ignore=agents", "--ignore", "mcps"}); err != nil {
 		t.Fatalf("selective import failed: %v", err)
 	}
-	assertImportedFile(t, filepath.Join(paths.ConfigHome, "rules", "imports", "selective", "kept.md"), files["rules/kept.md"])
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "selective", "rules", "kept.md"), files["rules/kept.md"])
 	for _, path := range []string{
-		filepath.Join(paths.ConfigHome, "prompts", "imports", "selective", "ignored.md"),
+		filepath.Join(paths.ConfigHome, "imports", "selective", "prompts", "ignored.md"),
 		filepath.Join(paths.ConfigHome, "imports", "selective", "agents", "ignored.agent.md"),
 		filepath.Join(paths.ConfigHome, "imports", "selective", "mcp", "ignored.json"),
 	} {
