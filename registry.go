@@ -953,6 +953,9 @@ func validatePromptAndRuleRegistries(paths Paths, info ProjectInfo, resolved map
 		index := discoverRegistry(kind, registryPath)
 		index = mergePluginRegistryResources(paths, kind, index)
 		enabled, _ := collectEnabledRegistryIdentifiers(kind, sources, resolved)
+		if activeImportName != "" {
+			enabled = sortedRegistryIdentifiers(index.Resources)
+		}
 		requireRegistry := len(enabled) > 0
 		for _, diagnostic := range index.Diagnostics {
 			if diagnostic.Code == registryCodeRegistryMissing && !requireRegistry {
