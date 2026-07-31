@@ -19,6 +19,7 @@ func TestImportSourceDirectoryPreservesAndRegistersAIResources(t *testing.T) {
 	files := map[string]string{
 		"rules/frontend.md":                     "Use modular components.\n",
 		"prompts/page.md":                       "Create the page.\n",
+		"prompts/cli.prompt.md":                 "Use the CLI prompt.\n",
 		"instructions/frontend.instructions.md": "Use the frontend conventions.\n",
 		"agents/frontend.agent.md":              "You are the frontend agent.\n",
 		"skills/next/SKILL.md":                  "Use Next.js best practices.\n",
@@ -42,6 +43,7 @@ func TestImportSourceDirectoryPreservesAndRegistersAIResources(t *testing.T) {
 
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "rules", "imports", "team", "frontend.md"), files["rules/frontend.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "prompts", "imports", "team", "page.md"), files["prompts/page.md"])
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "prompts", "imports", "team", "cli.md"), files["prompts/cli.prompt.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "instructions", "frontend.instructions.md"), files["instructions/frontend.instructions.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "agents", "frontend.agent.md"), files["agents/frontend.agent.md"])
 	assertImportedFile(t, filepath.Join(paths.ConfigHome, "imports", "team", "skills", "next", "SKILL.md"), files["skills/next/SKILL.md"])

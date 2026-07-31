@@ -272,6 +272,11 @@ func sourceImportCategories(files []sourceImportFile) []string {
 }
 
 func enableImportedRegistries(paths Paths, files []sourceImportFile) error {
+	for _, category := range []string{"prompts", "rules"} {
+		if err := os.MkdirAll(filepath.Join(paths.ConfigHome, category), 0o755); err != nil {
+			return fmt.Errorf("prepare %s registry for source import: %w", category, err)
+		}
+	}
 	identifiers := map[string][]string{"prompts": {}, "rules": {}}
 	for _, file := range files {
 		if file.Category != "prompt" && file.Category != "rule" {
@@ -420,7 +425,8 @@ func discoverSourceImportFiles(root string, paths Paths, name string) ([]sourceI
 		categorySet[category] = true
 		destination := filepath.Join(paths.ConfigHome, "imports", name, filepath.FromSlash(relative))
 		if category == "prompt" || category == "rule" {
-			destination = filepath.Join(paths.ConfigHome, category+"s", "imports", name, filepath.FromSlash(strings.TrimPrefix(relative, category+"s/")))
+			registryRelative := sourceImportRegistryRelativePath(relative, category)
+			destination = filepath.Join(paths.ConfigHome, category+"s", "imports", name, filepath.FromSlash(registryRelative))
 		}
 		files = append(files, sourceImportFile{SourcePath: relative, TargetPath: destination, Category: category})
 		return nil
@@ -435,6 +441,16 @@ func discoverSourceImportFiles(root string, paths Paths, name string) ([]sourceI
 	}
 	sort.Strings(categories)
 	return files, categories, nil
+}
+
+func sourceImportRegistryRelativePath(relative, category string) string {
+	trimmed := strings.TrimPrefix(relative, category+"s/")
+	extension := filepath.Ext(trimmed)
+	base := strings.TrimSuffix(trimmed, extension)
+	for _, suffix := range []string{".prompt", ".rule", ".instructions"} {
+		base = strings.TrimSuffix(base, suffix)
+	}
+	return base + extension
 }
 
 func skippedSourceImportDirectory(name string) bool {
