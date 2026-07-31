@@ -52,7 +52,7 @@ ai-dev version
 To install a specific release or into a specific directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.2 sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.3 sh
 curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
@@ -95,7 +95,7 @@ ai-dev policy explain <policy-id>
 ai-dev policy evaluate [policy-id] [--json] [--policy-mode disabled|advisory|enforced]
 ai-dev policy report [--json]
 ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]...
-ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
+ai-dev import <bundle|repository|directory> [--dry-run] [--force] [--name <name>] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
 ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json]
 ai-dev bundle show <bundle> [--json] [--decrypt] [--key <key-id>]
 ai-dev bundle list [directory] [--json]
@@ -176,12 +176,35 @@ ai-dev version
 - `key` — generate, import, export, inspect, and remove local signing/encryption keys.
 - `trust` — manage explicit signer trust state (global and project-scoped).
 - `export` — package configuration into a portable `.aidev` bundle, optionally signed and encrypted.
-- `import` — validate, policy-check, decrypt (when needed), and atomically import bundles.
+- `import` — validate and atomically import `.aidev` bundles, or import rules, prompts,
+  instructions, agents, skills, MCP files, and client configuration from a local
+  directory or Git repository.
 - `bundle` — verify structure/security, inspect, sign, decrypt, re-encrypt, and list security metadata.
 - `sync` — preview or apply bundle synchronization using import policies.
 - `config-path` — print the expected project configuration path.
 - `doctor` — check commands, directories, and configuration files.
 - `version` — print the ai-dev version.
+
+### Importing AI development files
+
+Import a local directory or Git repository containing AI development files:
+
+```sh
+ai-dev import /path/to/ai-dev-config --name team
+ai-dev import https://github.com/example/team-ai-config.git --name team
+```
+
+Use `--dry-run` to inspect the files first and `--force` to replace an existing
+import. Rules and prompts are copied into the normal ai-dev registries and
+enabled automatically. Instructions, agents, skills, MCP definitions, and
+client-specific files are preserved under:
+
+```text
+~/.config/ai-dev/imports/<name>/
+```
+
+Existing `.aidev` bundle imports continue to use the same `ai-dev import`
+command and security/conflict options.
 
 ## Configuration
 

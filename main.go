@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.14.2"
+const version = "0.14.3"
 
 type Paths struct {
 	ConfigHome string
@@ -281,7 +281,7 @@ func usage() {
   ai-dev ai credentials init <provider> [--format env|json]
   ai-dev ai credentials show <provider> [--format env|json]
 	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]... [--policy-mode disabled|advisory|enforced]
-	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json] [--policy-mode disabled|advisory|enforced]
+	ai-dev import <bundle|repository|directory> [--dry-run] [--force] [--name <name>] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json] [--policy-mode disabled|advisory|enforced]
 	ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json] [--policy-mode disabled|advisory|enforced]
 	ai-dev bundle show <bundle> [--json] [--decrypt] [--key <key-id>]
 	ai-dev bundle list [directory] [--json]
@@ -337,7 +337,7 @@ Commands:
 	machine      Inspect machine overlay selection and status
 	context      Display active source resolution context
 	export       Create a portable configuration bundle
-	import       Validate and import a configuration bundle
+	import       Validate/import a bundle or import AI development files from a source
 	bundle       Verify, inspect, and diff configuration bundles
 	policy       Evaluate and report configuration compliance policies
 	key          Manage signing and encryption keys

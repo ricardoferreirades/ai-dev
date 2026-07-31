@@ -221,9 +221,12 @@ func exportCommand(paths Paths, arguments []string) error {
 
 func importCommand(paths Paths, arguments []string) error {
 	if len(arguments) == 0 {
-		return UsageError{Message: "import requires a bundle path"}
+		return UsageError{Message: "import requires a bundle, repository, or directory"}
 	}
 	bundlePath := arguments[0]
+	if sourceImportRequested(bundlePath) {
+		return importSourceCommand(paths, arguments)
+	}
 	options := bundleImportOptions{
 		ConflictPolicy: bundleConflictPolicyFail,
 	}
