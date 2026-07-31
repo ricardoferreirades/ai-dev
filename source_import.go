@@ -20,6 +20,7 @@ type sourceImportOptions struct {
 	Force  bool
 	JSON   bool
 	Name   string
+	Ignore []string
 }
 
 type sourceImportFile struct {
@@ -36,6 +37,7 @@ type sourceImportReport struct {
 	DryRun       bool               `json:"dry_run"`
 	Files        []sourceImportFile `json:"files"`
 	Categories   []string           `json:"categories"`
+	Ignored      []string           `json:"ignored,omitempty"`
 	ManifestPath string             `json:"manifest_path"`
 }
 
@@ -82,7 +84,25 @@ func importSourceCommand(paths Paths, arguments []string) error {
 			}
 			index++
 			options.Name = arguments[index]
+		case "--ignore":
+			if index+1 >= len(arguments) {
+				return UsageError{Message: "--ignore requires a category"}
+			}
+			index++
+			category, err := normalizeIgnoredSourceCategory(arguments[index])
+			if err != nil {
+				return err
+			}
+			options.Ignore = append(options.Ignore, category)
 		default:
+			if strings.HasPrefix(arguments[index], "--ignore=") {
+				category, err := normalizeIgnoredSourceCategory(strings.TrimPrefix(arguments[index], "--ignore="))
+				if err != nil {
+					return err
+				}
+				options.Ignore = append(options.Ignore, category)
+				continue
+			}
 			return UsageError{Message: fmt.Sprintf("unknown source import option: %s", arguments[index])}
 		}
 	}
@@ -106,6 +126,19 @@ func importSourceCommand(paths Paths, arguments []string) error {
 	if err != nil {
 		return err
 	}
+	ignored := uniqueSortedStrings(options.Ignore)
+	ignoredSet := map[string]bool{}
+	for _, category := range ignored {
+		ignoredSet[category] = true
+	}
+	filteredFiles := files[:0]
+	for _, file := range files {
+		if !ignoredSet[file.Category] {
+			filteredFiles = append(filteredFiles, file)
+		}
+	}
+	files = filteredFiles
+	categories = sourceImportCategories(files)
 	if len(files) == 0 {
 		return fmt.Errorf("no supported AI development files found in %s", source)
 	}
@@ -118,6 +151,7 @@ func importSourceCommand(paths Paths, arguments []string) error {
 		DryRun:       options.DryRun,
 		Files:        files,
 		Categories:   categories,
+		Ignored:      ignored,
 		ManifestPath: manifestPath,
 	}
 	if !options.Force {
@@ -156,6 +190,7 @@ func importSourceCommand(paths Paths, arguments []string) error {
 			"import_name":   name,
 			"imported_at":   time.Now().UTC().Format(time.RFC3339),
 			"categories":    categories,
+			"ignored":       ignored,
 			"source_root":   root,
 			"managed_files": report.Files,
 		}
@@ -178,12 +213,62 @@ func importSourceCommand(paths Paths, arguments []string) error {
 		}
 		fmt.Println(string(content))
 	} else {
-		fmt.Printf("imported_source=%s files=%d categories=%s dry_run=%t\n", source, len(report.Files), strings.Join(categories, ","), options.DryRun)
+		fmt.Printf("imported_source=%s files=%d categories=%s ignored=%s dry_run=%t\n", source, len(report.Files), strings.Join(categories, ","), strings.Join(ignored, ","), options.DryRun)
 		for _, file := range report.Files {
 			fmt.Printf("%s category=%s source=%s target=%s\n", file.Action, file.Category, file.SourcePath, file.TargetPath)
 		}
 	}
 	return nil
+}
+
+func normalizeIgnoredSourceCategory(value string) (string, error) {
+	category := strings.ToLower(strings.TrimSpace(value))
+	switch category {
+	case "prompt", "prompts":
+		return "prompt", nil
+	case "rule", "rules":
+		return "rule", nil
+	case "instruction", "instructions":
+		return "instruction", nil
+	case "agent", "agents":
+		return "agent", nil
+	case "skill", "skills":
+		return "skill", nil
+	case "mcp", "mcps":
+		return "mcp", nil
+	case "client", "clients":
+		return "client", nil
+	case "policy", "policies":
+		return "policy", nil
+	default:
+		return "", UsageError{Message: fmt.Sprintf("unknown import category %q (use prompts, rules, instructions, agents, skills, mcp, client, or policies)", value)}
+	}
+}
+
+func uniqueSortedStrings(values []string) []string {
+	seen := map[string]bool{}
+	result := []string{}
+	for _, value := range values {
+		if !seen[value] {
+			seen[value] = true
+			result = append(result, value)
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func sourceImportCategories(files []sourceImportFile) []string {
+	seen := map[string]bool{}
+	for _, file := range files {
+		seen[file.Category] = true
+	}
+	categories := []string{}
+	for category := range seen {
+		categories = append(categories, category)
+	}
+	sort.Strings(categories)
+	return categories
 }
 
 func enableImportedRegistries(paths Paths, files []sourceImportFile) error {

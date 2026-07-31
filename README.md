@@ -52,7 +52,7 @@ ai-dev version
 To install a specific release or into a specific directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.4 sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.5 sh
 curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
@@ -95,7 +95,7 @@ ai-dev policy explain <policy-id>
 ai-dev policy evaluate [policy-id] [--json] [--policy-mode disabled|advisory|enforced]
 ai-dev policy report [--json]
 ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]...
-ai-dev import <bundle|repository|directory> [--dry-run] [--force] [--name <name>] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
+ai-dev import <bundle|repository|directory> [--dry-run] [--force] [--name <name>] [--ignore <category>]... [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json]
 ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json]
 ai-dev bundle show <bundle> [--json] [--decrypt] [--key <key-id>]
 ai-dev bundle list [directory] [--json]
@@ -193,6 +193,19 @@ Import a local directory or Git repository containing AI development files:
 ai-dev import /path/to/ai-dev-config --name team
 ai-dev import https://github.com/example/team-ai-config.git --name team
 ```
+
+Ignore selected resource categories during a source import:
+
+```sh
+ai-dev import /path/to/ai-dev-config --name team \
+  --ignore mcps --ignore prompts --ignore agents
+```
+
+The option can be repeated or written as `--ignore=skills`. Accepted categories
+are `prompts`, `rules`, `instructions`, `agents`, `skills`, `mcp`, `client`,
+and `policies` (singular and plural forms are accepted). Ignored categories are
+excluded before conflict checks and are recorded in the JSON report and import
+manifest.
 
 Use `--dry-run` to inspect the files first and `--force` to replace an existing
 import. Rules and prompts are copied into the normal ai-dev registries and

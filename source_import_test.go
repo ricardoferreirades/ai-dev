@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,6 +96,52 @@ func TestImportSourceRequiresForceForExistingFiles(t *testing.T) {
 	}
 	if err := importSourceCommand(paths, []string{source, "--name", "team", "--force"}); err != nil {
 		t.Fatalf("forced import failed: %v", err)
+	}
+}
+
+func TestImportSourceIgnoresSelectedCategories(t *testing.T) {
+	source := t.TempDir()
+	paths := Paths{ConfigHome: t.TempDir(), DataHome: t.TempDir(), StateHome: t.TempDir()}
+	files := map[string]string{
+		"prompts/ignored.md":      "prompt\n",
+		"rules/kept.md":           "rule\n",
+		"agents/ignored.agent.md": "agent\n",
+		"mcp/ignored.json":        "{}\n",
+	}
+	for relative, content := range files {
+		path := filepath.Join(source, filepath.FromSlash(relative))
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := importSourceCommand(paths, []string{source, "--name", "selective", "--ignore", "prompts", "--ignore=agents", "--ignore", "mcps"}); err != nil {
+		t.Fatalf("selective import failed: %v", err)
+	}
+	assertImportedFile(t, filepath.Join(paths.ConfigHome, "rules", "imports", "selective", "kept.md"), files["rules/kept.md"])
+	for _, path := range []string{
+		filepath.Join(paths.ConfigHome, "prompts", "imports", "selective", "ignored.md"),
+		filepath.Join(paths.ConfigHome, "imports", "selective", "agents", "ignored.agent.md"),
+		filepath.Join(paths.ConfigHome, "imports", "selective", "mcp", "ignored.json"),
+	} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("ignored resource was imported: %s", path)
+		}
+	}
+	manifestData, err := os.ReadFile(filepath.Join(paths.ConfigHome, "imports", "selective", "import.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest map[string]any
+	if err := json.Unmarshal(manifestData, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	ignored, ok := manifest["ignored"].([]any)
+	if !ok || len(ignored) != 3 {
+		t.Fatalf("manifest did not record ignored categories: %+v", manifest["ignored"])
 	}
 }
 
