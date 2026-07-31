@@ -987,7 +987,7 @@ func buildClientStructureSnapshot() string {
 	}{
 		{name: "copilot", folder: ".github", hierarchy: "single-file guidance", files: []struct{ path, meaning string }{{".github/copilot-instructions.md", "repository guidance for GitHub Copilot"}}},
 		{name: "claude", folder: ".claude", hierarchy: "single-file rules", files: []struct{ path, meaning string }{{".claude/rules.md", "repository rules for Claude"}}},
-		{name: "codex", folder: ".codex", hierarchy: "single-file context plus snapshot", files: []struct{ path, meaning string }{{".codex/ai-dev-context.md", "resolved ai-dev project context used by Codex"}, {".codex/library/default/ai-client-structure.snapshot.md", "canonical snapshot for cross-client translation and sync"}}},
+		{name: "codex", folder: ".codex", hierarchy: "single-file context plus snapshot", files: []struct{ path, meaning string }{{".codex/ai-dev-context.md", "resolved ai-dev project context used by Codex"}, {".codex/config/ai-client-structure.snapshot.md", "canonical snapshot for cross-client translation and sync"}}},
 	}
 	for _, client := range clients {
 		builder.WriteString("### ")

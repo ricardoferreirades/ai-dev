@@ -1348,7 +1348,7 @@ func aiBuildClientBundle(paths Paths, clientName, target string) (aiBundlePlan, 
 		return aiBundlePlan{}, err
 	}
 
-	snapshotFiles := []string{"library/default/ai-client-structure.snapshot.md"}
+	snapshotFiles := []string{"config/ai-client-structure.snapshot.md"}
 	if err := addFiles(snapshotFiles, buildClientStructureSnapshot()); err != nil {
 		return aiBundlePlan{}, err
 	}

@@ -178,7 +178,7 @@ func TestAIBuildClientBundleIncludesSnapshotFile(t *testing.T) {
 	}
 	found := false
 	for _, path := range plan.Paths {
-		if strings.HasSuffix(path, filepath.Join("library", "default", "ai-client-structure.snapshot.md")) {
+		if strings.HasSuffix(path, filepath.Join("config", "ai-client-structure.snapshot.md")) {
 			found = true
 			break
 		}
