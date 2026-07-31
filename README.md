@@ -37,13 +37,35 @@ directory is on `PATH`.
 macOS and Linux users can install the latest published binary with:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh \
+  | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
-The installer detects the operating system and CPU architecture, installs
-`ai-dev` into the first writable directory already on `PATH`, and otherwise
-uses `~/.local/bin` and adds it to the current shell's startup file. Open a
-new shell, or run the printed `export PATH=...` command, then verify it with:
+The explicit `AI_DEV_INSTALL_DIR` keeps the installation location stable. The
+installer detects the operating system and CPU architecture, verifies the
+release checksum, and installs `ai-dev` into that directory. Add the directory
+to your shell startup file once if it is not already on `PATH`.
+
+For Bash:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+For Zsh:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+```
+
+If `AI_DEV_INSTALL_DIR` is omitted, the installer chooses the first writable
+directory already present on the current shell's `PATH`. A temporary export
+such as `export PATH="$HOME/go/bin:$PATH"` can therefore cause the binary to
+be installed into `$HOME/go/bin`; use the explicit option above to avoid that.
+
+Verify the installation with:
 
 ```sh
 ai-dev version
@@ -52,8 +74,8 @@ ai-dev version
 To install a specific release or into a specific directory:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_VERSION=0.14.6 sh
-curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh | AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
+curl -fsSL https://raw.githubusercontent.com/ricardoferreirades/ai-dev/main/install.sh \
+  | AI_DEV_VERSION=0.14.6 AI_DEV_INSTALL_DIR="$HOME/.local/bin" sh
 ```
 
 For a source checkout, use `AI_DEV_FROM_SOURCE=1 ./install.sh`; this requires
