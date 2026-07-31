@@ -415,6 +415,14 @@ func syncCommand(paths Paths, arguments []string) error {
 	if len(arguments) == 0 {
 		return UsageError{Message: "sync requires a subcommand or bundle path"}
 	}
+	if len(arguments) >= 2 {
+		switch arguments[0] {
+		case clientScopeUser, clientScopeProject, "both":
+			aiArgs := []string{arguments[1], "--target", arguments[0]}
+			aiArgs = append(aiArgs, arguments[2:]...)
+			return aiSyncCommand(paths, aiArgs)
+		}
+	}
 	if arguments[0] == "preview" {
 		if len(arguments) < 2 {
 			return UsageError{Message: "sync preview requires a bundle path"}

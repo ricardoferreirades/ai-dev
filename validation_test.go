@@ -129,6 +129,7 @@ func TestValidateConfigurationClientsNamespace(t *testing.T) {
 			"enabled = true",
 			"[clients.unknown]",
 			"enabled = true",
+			"definition = \"/tmp/unknown-client.toml\"",
 			"[clients.cursor]",
 			"enabled = \"yes\"",
 			"format = \"json\"",
@@ -148,9 +149,6 @@ func TestValidateConfigurationClientsNamespace(t *testing.T) {
 
 	seen := map[string]bool{}
 	for _, finding := range report.Errors {
-		if finding.Path == "clients.unknown" && finding.Code == validationCodeUnknownField {
-			seen["unknown_client"] = true
-		}
 		if finding.Path == "clients.cursor.enabled" && finding.Code == validationCodeInvalidType {
 			seen["enabled_type"] = true
 		}
@@ -158,9 +156,14 @@ func TestValidateConfigurationClientsNamespace(t *testing.T) {
 			seen["unknown_field"] = true
 		}
 	}
-	for _, key := range []string{"unknown_client", "enabled_type", "unknown_field"} {
+	for _, key := range []string{"enabled_type", "unknown_field"} {
 		if !seen[key] {
 			t.Fatalf("missing expected clients validation finding %s: %+v", key, report.Errors)
+		}
+	}
+	for _, finding := range report.Errors {
+		if strings.HasPrefix(finding.Path, "clients.unknown") {
+			t.Fatalf("arbitrary client definition should be accepted: %+v", finding)
 		}
 	}
 }
@@ -979,8 +982,15 @@ func isolatedValidationEnvironment(
 	dataHome string,
 	stateHome string,
 ) []string {
+	base := make([]string, 0, len(os.Environ()))
+	for _, entry := range os.Environ() {
+		if strings.HasPrefix(entry, "AI_DEV_") {
+			continue
+		}
+		base = append(base, entry)
+	}
 	return append(
-		os.Environ(),
+		base,
 		"AI_DEV_CONFIG_HOME="+configHome,
 		"AI_DEV_DATA_HOME="+dataHome,
 		"AI_DEV_STATE_HOME="+stateHome,

@@ -54,6 +54,9 @@ func TestPromptAndRuleRegistryCommands(t *testing.T) {
 	}, "\n"))
 
 	projectID := filesystemProjectID(repo)
+	if resolvedRepo, resolveErr := filepath.EvalSymlinks(repo); resolveErr == nil {
+		projectID = filesystemProjectID(resolvedRepo)
+	}
 	mustWriteFile(t, filepath.Join(configHome, "projects", safeProjectFilename(projectID)+".toml"), strings.Join([]string{
 		"schema = \"v1\"",
 		"[prompts]",

@@ -262,16 +262,19 @@ func (adapter staticAdapter) Destinations(paths Paths, info ProjectInfo, scope s
 
 	switch adapter.spec.name {
 	case clientNameCodex:
-		addDestination(filepath.Join(home, ".config", "codex", "config.json"), clientScopeUser)
+		addDestination(filepath.Join(home, ".codex"), clientScopeUser)
 	case clientNameClaude:
-		addDestination(filepath.Join(home, ".config", "claude-code", "config.yaml"), clientScopeUser)
+		addDestination(filepath.Join(home, ".claude"), clientScopeUser)
 	case clientNameCursor:
-		addDestination(filepath.Join(home, ".config", "Cursor", "User", "mcp.json"), clientScopeUser)
+		addDestination(filepath.Join(home, ".cursor"), clientScopeUser)
 		addDestination(filepath.Join(info.ProjectRoot, ".cursor", "mcp.json"), clientScopeProject)
 	case clientNameVSCode:
+		addDestination(filepath.Join(home, ".vscode"), clientScopeUser)
 		addDestination(filepath.Join(home, ".config", "Code", "User", "settings.json"), clientScopeUser)
 		addDestination(filepath.Join(home, ".config", "Code - Insiders", "User", "settings.json"), clientScopeUser)
 		addDestination(filepath.Join(info.ProjectRoot, ".vscode", "settings.json"), clientScopeProject)
+	default:
+		addDestination(filepath.Join(home, "."+adapter.spec.name), clientScopeUser)
 	}
 
 	sort.Slice(destinations, func(i, j int) bool {

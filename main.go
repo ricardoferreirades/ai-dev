@@ -16,7 +16,7 @@ import (
 	toml "github.com/pelletier/go-toml/v2"
 )
 
-const version = "0.13.0"
+const version = "0.14.0"
 
 type Paths struct {
 	ConfigHome string
@@ -167,6 +167,11 @@ func main() {
 			die(err)
 		}
 
+	case "ai":
+		if err := aiCommand(paths, commandArguments); err != nil {
+			die(err)
+		}
+
 	case "export":
 		if err := exportCommand(paths, commandArguments); err != nil {
 			die(err)
@@ -263,10 +268,18 @@ func usage() {
 	ai-dev rule info [--json]
 	ai-dev profile list [--json]
 	ai-dev profile show <profile> [--json]
-	ai-dev profile active [--json]
-	ai-dev profile resolve [--with-project] [--json]
-	ai-dev machine show [--json]
-	ai-dev context [--json]
+  ai-dev profile active [--json]
+  ai-dev profile resolve [--with-project] [--json]
+  ai-dev machine show [--json]
+  ai-dev context [--json]
+  ai-dev ai agents sync <client> [--force] [--dry-run]
+  ai-dev ai context [--client codex|claude|cursor|vscode|generic] [--json]
+  ai-dev ai launch <client> [--json]
+  ai-dev ai sync <client> [--target project|user|both] [--force] [--dry-run]
+  ai-dev ai env init [--force]
+  ai-dev ai env show [--example]
+  ai-dev ai credentials init <provider> [--format env|json]
+  ai-dev ai credentials show <provider> [--format env|json]
 	ai-dev export [--output <path>] [--project] [--global] [--include-machine] [--include-plugins] [--profiles] [--prompts] [--rules] [--config] [--plugins] [--sign <key-id>] [--encrypt-for <key-id>]... [--policy-mode disabled|advisory|enforced]
 	ai-dev import <bundle> [--dry-run] [--overwrite | --skip-existing | --fail-on-conflict] [--require-signed | --require-trusted] [--require-signer <key-id>]... [--key <key-id>] [--json] [--policy-mode disabled|advisory|enforced]
 	ai-dev bundle verify <bundle> [--require-trusted-signature] [--require-signer <key-id>]... [--json] [--policy-mode disabled|advisory|enforced]

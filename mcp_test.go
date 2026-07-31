@@ -53,6 +53,9 @@ func TestMCPListShowAndResolve(t *testing.T) {
 	}
 
 	projectID := filesystemProjectID(repo)
+	if resolvedRepo, resolveErr := filepath.EvalSymlinks(repo); resolveErr == nil {
+		projectID = filesystemProjectID(resolvedRepo)
+	}
 	projectConfig := filepath.Join(
 		configHome,
 		"projects",

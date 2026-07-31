@@ -1500,22 +1500,15 @@ func validateClientsField(source string, value any) []ValidationFinding {
 		}}
 	}
 
-	allowedClients := map[string]bool{
-		clientNameCodex:  true,
-		clientNameClaude: true,
-		clientNameCursor: true,
-		clientNameVSCode: true,
-	}
-
 	findings := []ValidationFinding{}
 	for _, name := range mapKeys(clients) {
-		if !allowedClients[name] {
+		if strings.TrimSpace(name) == "" {
 			findings = append(findings, ValidationFinding{
 				Source:   source,
 				Path:     "clients." + name,
-				Code:     validationCodeUnknownField,
+				Code:     validationCodeInvalidValue,
 				Severity: "error",
-				Message:  "unknown client name",
+				Message:  "client name must not be empty",
 			})
 			continue
 		}
@@ -1533,7 +1526,8 @@ func validateClientsField(source string, value any) []ValidationFinding {
 		}
 
 		allowedFields := map[string]bool{
-			"enabled": true,
+			"enabled":    true,
+			"definition": true,
 		}
 		for _, key := range mapKeys(table) {
 			if !allowedFields[key] {
@@ -1555,6 +1549,17 @@ func validateClientsField(source string, value any) []ValidationFinding {
 					Code:     validationCodeInvalidType,
 					Severity: "error",
 					Message:  "enabled must be a boolean",
+				})
+			}
+		}
+		if definitionValue, exists := table["definition"]; exists {
+			if definition, ok := definitionValue.(string); !ok || strings.TrimSpace(definition) == "" {
+				findings = append(findings, ValidationFinding{
+					Source:   source,
+					Path:     "clients." + name + ".definition",
+					Code:     validationCodeInvalidType,
+					Severity: "error",
+					Message:  "definition must be a non-empty path string",
 				})
 			}
 		}
